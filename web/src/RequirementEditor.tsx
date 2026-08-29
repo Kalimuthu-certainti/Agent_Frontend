@@ -60,7 +60,7 @@ export function RequirementEditor() {
           <pre>{`JIRA_BASE_URL=https://your-site.atlassian.net
 JIRA_EMAIL=you@example.com
 JIRA_API_TOKEN=…            # an Atlassian API token
-JIRA_PROJECT_KEY=PROJ`}</pre>
+JIRA_PROJECT_KEY=TRDV2`}</pre>
         </div>
       )}
 

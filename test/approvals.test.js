@@ -9,7 +9,7 @@ const path = require('path');
 const { FileApprovalStore, ApprovalError } = require('../src/approvals');
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'acp-ap-')), 'approvals.jsonl');
-const base = { request_id: 'APP-142:G4', ticket_key: 'APP-142', gate: 'G4', actor: 'alex' };
+const base = { request_id: 'TRDV2-570:G4', ticket_key: 'TRDV2-570', gate: 'G4', actor: 'kalimuthu' };
 
 test('records a decision and reports it as created', () => {
   const s = new FileApprovalStore(tmp());
@@ -31,7 +31,7 @@ test('re-submitting the SAME decision is idempotent, not a duplicate', () => {
 
 test('a CONFLICTING second decision is refused and returns the existing one', () => {
   const s = new FileApprovalStore(tmp());
-  s.decide({ ...base, decision: 'approved', actor: 'alex' });
+  s.decide({ ...base, decision: 'approved', actor: 'kalimuthu' });
   try {
     s.decide({ ...base, decision: 'bounced', reason: 'changed my mind', actor: 'someone-else' });
     assert.fail('expected a CONFLICT');
@@ -39,7 +39,7 @@ test('a CONFLICTING second decision is refused and returns the existing one', ()
     assert.ok(err instanceof ApprovalError);
     assert.strictEqual(err.code, 'CONFLICT');
     assert.strictEqual(err.existing.decision, 'approved');
-    assert.strictEqual(err.existing.actor, 'alex');
+    assert.strictEqual(err.existing.actor, 'kalimuthu');
   }
 });
 
@@ -48,7 +48,7 @@ test('the email channel and the UI channel share one record — first write wins
   const s = new FileApprovalStore(f);
   s.decide({ ...base, decision: 'approved', channel: 'email', actor: 'mahitha' });
   // The UI now tries to bounce the same request. It must lose.
-  assert.throws(() => s.decide({ ...base, decision: 'bounced', reason: 'no', actor: 'alex' }),
+  assert.throws(() => s.decide({ ...base, decision: 'bounced', reason: 'no', actor: 'kalimuthu' }),
     e => e.code === 'CONFLICT');
   assert.strictEqual(s.find(base.request_id).channel, 'email');
 });

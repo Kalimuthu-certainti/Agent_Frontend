@@ -8,9 +8,10 @@ import { CommandDeck } from './CommandDeck';
 import { TicketView } from './TicketView';
 import { Usage } from './Usage';
 import { Approvals } from './Approvals';
+import { Team } from './Team';
 import { RequirementEditor } from './RequirementEditor';
 
-type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'requirement';
+type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'team' | 'requirement';
 
 const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] = [
   { id: 'deck', label: 'Command deck', title: 'Command deck',
@@ -21,6 +22,8 @@ const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] 
     lede: 'Where tokens and money went. Measures that were never recorded are withheld rather than plotted as zero.' },
   { id: 'approvals', label: 'Approvals', title: 'Approvals',
     lede: 'Everything waiting on a human decision, with enough context to decide without leaving this screen.' },
+  { id: 'team', label: 'Team', title: 'Team & routing',
+    lede: 'Who gets mailed for each gate. The Mailer reads only this — changing a recipient is a click here, not a code change.' },
   { id: 'requirement', label: 'Requirement', title: 'Requirement editor',
     lede: 'Write a requirement straight into Jira, labelled for agent intake.' },
 ];
@@ -98,6 +101,7 @@ function App() {
         {surface === 'ticket' && <TicketView ticketKey={ticketKey} onPick={setTicketKey} />}
         {surface === 'usage' && <Usage />}
         {surface === 'approvals' && <Approvals />}
+        {surface === 'team' && <Team />}
         {surface === 'requirement' && <RequirementEditor />}
       </main>
     </div>
