@@ -313,6 +313,102 @@ tbody tr:hover { background: var(--surface-sunk); }
 .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s4); }
 @media (max-width: 640px) { .row-2 { grid-template-columns: 1fr; } }
 
+/* ---------- team & routing ---------- */
+
+/* the gate-coverage strip: one chip per gate, the guard that never leaves the screen */
+.covstrip { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s4); }
+.covgate {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: var(--s1) var(--s3); border-radius: 999px;
+  font-family: var(--mono); font-size: var(--t-xs);
+  border: 1px solid var(--border-strong); color: var(--ink-2); background: var(--surface);
+}
+.covgate.is-covered { border-color: var(--healthy); color: var(--healthy); }
+.covgate.is-uncovered { border-color: var(--critical); color: var(--critical); background: var(--critical-dim); font-weight: 600; }
+
+.banner {
+  border: 1px solid var(--critical); background: var(--critical-dim);
+  border-radius: var(--radius); padding: var(--s3) var(--s4);
+  font-size: var(--t-sm); margin-bottom: var(--s4);
+}
+
+.team-grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: var(--s4); align-items: start; }
+@media (max-width: 1100px) { .team-grid { grid-template-columns: 1fr; } }
+
+.roster-row {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); margin-bottom: var(--s2);
+  background: var(--surface-sunk); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  cursor: grab;
+}
+.roster-row:active { cursor: grabbing; }
+.roster-row.is-inactive { opacity: 0.5; }
+.roster-row .roster-id { min-width: 0; overflow-wrap: anywhere; }
+.drag-grip { color: var(--ink-3); font-size: var(--t-xs); letter-spacing: -2px; user-select: none; }
+
+.person-form {
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--s3); margin-bottom: var(--s3); background: var(--surface-sunk);
+}
+
+.group-card {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--s4); margin-bottom: var(--s4); background: var(--surface-sunk);
+  transition: border-color 120ms ease;
+}
+/* drag zones get a dashed accent border on hover */
+.group-card.is-over { border-color: var(--accent); border-style: dashed; box-shadow: 0 0 0 1px var(--accent-glow); }
+.group-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
+.group-head .group-name {
+  width: auto; flex: 0 1 220px; min-height: 32px;
+  font-family: var(--display); font-weight: 700; font-size: 1.05rem;
+  background: transparent; border-color: transparent;
+}
+.group-head .group-name:hover, .group-head .group-name:focus { border-color: var(--border-strong); background: var(--surface-sunk); }
+
+.dropzone {
+  display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center;
+  min-height: 44px; padding: var(--s2) var(--s3);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+}
+.dropzone.is-over { border-color: var(--accent); background: var(--accent-glow); }
+.member-chip { gap: 4px; }
+.chip-x {
+  appearance: none; background: none; border: 0; padding: 0 0 0 2px;
+  color: inherit; font: inherit; font-size: var(--t-xs); cursor: pointer; opacity: 0.7;
+}
+.chip-x:hover:not(:disabled) { opacity: 1; }
+.chip-btn { cursor: pointer; background: none; }
+.chip-btn:disabled { cursor: not-allowed; }
+
+.btn-slim { min-height: 28px; padding: 0 var(--s2); font-size: var(--t-xs); }
+.mode-toggle { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.mode-toggle .is-on { border-color: var(--accent); color: var(--ink); background: var(--accent-dim); font-weight: 600; }
+
+.esc-row { display: flex; align-items: center; gap: var(--s2); padding: var(--s1) 0; }
+.esc-row.is-dragging { opacity: 0.4; }
+.esc-row .esc-n { color: var(--ink-3); font-size: var(--t-xs); }
+.esc-row .esc-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-size: var(--t-sm); }
+.esc-row .esc-timeout { width: 72px; min-height: 28px; padding: 2px var(--s2); }
+
+.card-error { color: var(--critical); font-size: var(--t-sm); margin: var(--s2) 0; }
+
+/* the sticky bar that appears while the draft differs from what is stored */
+.savebar {
+  position: sticky; bottom: var(--s4); z-index: 5;
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  margin-top: var(--s4); padding: var(--s3) var(--s4);
+  background: var(--surface-raise); border: 1px solid var(--accent);
+  border-radius: var(--radius); box-shadow: 0 8px 24px var(--accent-glow);
+  font-size: var(--t-sm);
+}
+.savebar-blocks { display: flex; flex-direction: column; gap: 2px; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  clip: rect(0 0 0 0); overflow: hidden; white-space: nowrap;
+}
+
 /* A cell that opens something. A button, because it acts; styled as a link,
    because it reads as one in a table. */
 .linkish {

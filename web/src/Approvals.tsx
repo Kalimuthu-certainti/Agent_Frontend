@@ -61,6 +61,11 @@ function Item({ item, actor, onDone }: { item: ApprovalItem; actor: string; onDo
 
         <dl className="tile-meta" style={{ borderTop: 'none', paddingTop: 0, marginTop: 0 }}>
           <dt>verdict</dt><dd>{item.verdict}</dd>
+          <dt>routed to</dt>
+          <dd>{item.routing
+            ? `${item.routing.group_name} · ${item.routing.recipient_count} recipient${
+                item.routing.recipient_count === 1 ? '' : 's'}${item.routing.via === 'dl' ? ' (via DL)' : ''}`
+            : <Absent>no group owns this gate — assign one on the Team screen</Absent>}</dd>
           <dt>raised by</dt><dd>{item.raised_by ?? <Absent />}</dd>
           <dt>PR</dt>
           <dd>{item.pr_url

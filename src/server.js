@@ -22,6 +22,12 @@
  *   PUT    /api/settings/users/:id      update one
  *   DELETE /api/settings/users/:id      remove one
  *
+ *   GET    /api/team                    people, groups, gate coverage
+ *   POST   /api/team/person             add a person to the roster
+ *   PATCH  /api/team/person/:id         edit / deactivate one
+ *   POST   /api/team/group              create a group
+ *   PATCH  /api/team/group/:id          edit one (members, gate, mode, DL, escalation)
+ *
  * To move to Postgres: construct a PgRunLogReader on the line marked THE SEAM.
  * Nothing else here, and nothing in web/, changes.
  */
@@ -32,6 +38,7 @@ const path = require('path');
 const { FileRunLogReader } = require('./reader');
 const { FileApprovalStore, ApprovalError } = require('./approvals');
 const { FileSettingsStore, SettingsError, SECURITY, ROLES, EVENTS } = require('./settings');
+const { FileTeamStore, TeamError } = require('./team');
 const { sendMail, MailError } = require('./mailer');
 const { notify, logOutcome } = require('./notify');
 const { DEFAULT_LOG_PATH, GATE_ORDER } = require('./runLog');
@@ -47,6 +54,7 @@ const reader = new FileRunLogReader(LOG_PATH);
 // ---------------------------------------------------------------------------
 const approvals = new FileApprovalStore();
 const settings = new FileSettingsStore();
+const team = new FileTeamStore();
 
 /** Jira is optional. Absent config is reported, never faked. */
 const jira = {
@@ -105,6 +113,17 @@ function approvalQueue() {
   const byRequest = new Map(decided.map(d => [d.request_id, d]));
   const items = [];
 
+  // "routed to: Developers · 2 recipients" — resolved once per gate so the
+  // operator sees where each request went. Null when no group owns the gate.
+  const routingFor = gate => {
+    const r = team.recipients(gate);
+    return r && {
+      group_id: r.group_id, group_name: r.group_name,
+      via: r.via, recipient_count: r.emails.length,
+    };
+  };
+  const routing = new Map(GATE_ORDER.map(g => [g, routingFor(g)]));
+
   for (const t of reader.gates()) {
     for (const g of t.gates) {
       const needsHuman = g.recorded && (g.verdict === 'pending' || g.verdict === 'bounced' || g.verdict === 'escalated');
@@ -124,6 +143,7 @@ function approvalQueue() {
         blocked: t.blocked,
         blocking_gates: t.blocking_gates,
         ready_to_merge: t.ready_to_merge,
+        routing: routing.get(g.gate) || null,
         decision: byRequest.get(request_id) || null,
       });
     }
@@ -221,6 +241,16 @@ function serveStatic(res, pathname) {
   }
   fs.readFile(filePath, (err, buf) => {
     if (err) {
+      // A missing asset (a path with an extension) is a 404, never the SPA
+      // fallback: answering a module request with index.html as text/html
+      // produces a baffling strict-MIME error in the browser instead of the
+      // real story — usually a build made for a different base path.
+      if (path.extname(rel)) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end(`No such file in web/dist: ${rel}\n` +
+          'If the browser asked for it, the build and the server disagree — rebuild with: npm run build');
+        return;
+      }
       // SPA fallback so client-side routes resolve on refresh.
       fs.readFile(path.join(root, 'index.html'), (e2, html) => {
         if (e2) {
@@ -271,6 +301,7 @@ const server = http.createServer(async (req, res) => {
         });
       }
       if (pathname === '/api/approvals') return sendJson(res, 200, approvalQueue());
+      if (pathname === '/api/team') return sendJson(res, 200, team.payload());
       if (pathname === '/api/config') {
         return sendJson(res, 200, {
           log_path: LOG_PATH,
@@ -307,7 +338,7 @@ const server = http.createServer(async (req, res) => {
         // Notify only on a real state change, and never let mail trouble turn a
         // recorded decision into a failed request — see notify().
         const notified = created
-          ? await notify(settings, 'approval.recorded', { record, base_url: PUBLIC_URL })
+          ? await notify(settings, 'approval.recorded', { record, base_url: PUBLIC_URL }, team)
           : null;
         logOutcome(notified);
         return sendJson(res, created ? 201 : 200, { record, created, notified });
@@ -322,6 +353,12 @@ const server = http.createServer(async (req, res) => {
         });
         logOutcome(notified);
         return sendJson(res, 201, { issue, notified });
+      }
+      if (pathname === '/api/team/person') {
+        return sendJson(res, 201, { person: team.createPerson(payload) });
+      }
+      if (pathname === '/api/team/group') {
+        return sendJson(res, 201, { group: team.createGroup(payload) });
       }
       const post = settingsRoute(pathname);
       if (post) {
@@ -358,6 +395,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
     }
 
+    if (req.method === 'PATCH') {
+      const payload = await readBody(req);
+      const m = pathname.match(/^\/api\/team\/(person|group)\/([^/]+)$/);
+      if (m) {
+        return sendJson(res, 200, m[1] === 'person'
+          ? { person: team.updatePerson(m[2], payload) }
+          : { group: team.updateGroup(m[2], payload) });
+      }
+      return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
+    }
+
     if (req.method === 'DELETE') {
       const del = settingsRoute(pathname);
       if (del) {
@@ -373,6 +421,12 @@ const server = http.createServer(async (req, res) => {
 
     return sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} is not supported here` });
   } catch (err) {
+    if (err instanceof TeamError) {
+      const status = err.code === 'NOT_FOUND' ? 404
+        : err.code === 'DUPLICATE' ? 409
+        : err.code === 'CORRUPT' ? 500 : 400;
+      return sendJson(res, status, { error: err.code, message: err.message });
+    }
     if (err instanceof SettingsError) {
       const status = err.code === 'NOT_FOUND' ? 404
         : err.code === 'DUPLICATE' ? 409
@@ -414,4 +468,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, reader, approvals, settings, approvalQueue };
+module.exports = { server, reader, approvals, settings, team, approvalQueue };

@@ -14,7 +14,7 @@ const { sendMail, MailError } = require('./mailer');
 
 /** Bodies live here rather than at the call sites, so the wording stays in one place. */
 const TEMPLATES = {
-  'approval.recorded': ({ record, base_url }) => ({
+  'approval.recorded': ({ record, base_url, routed }) => ({
     subject: `[${record.ticket_key || 'agent'}] ${record.gate || 'gate'} ${record.decision} by ${record.actor}`,
     text: [
       `${record.actor} ${record.decision} ${record.gate || 'a gate'}` +
@@ -29,7 +29,9 @@ const TEMPLATES = {
       '',
       base_url ? `Open the panel: ${base_url}` : 'Open the Agent Control panel to see the queue.',
       '',
-      'You are on this list because your configuration group subscribes to approval.recorded.',
+      routed
+        ? `You are on this list because ${routed.group_name} owns the ${record.gate || ''} gate.`.replace('  ', ' ')
+        : 'You are on this list because your configuration group subscribes to approval.recorded.',
     ].join('\n'),
   }),
 
@@ -55,30 +57,49 @@ const TEMPLATES = {
  *   { status: 'sent',    event, recipients: [...], message_id }
  *   { status: 'skipped', event, reason }            — no mail config, or nobody subscribed
  *   { status: 'failed',  event, recipients, error } — the server refused or was unreachable
+ *
+ * When a team store is passed, an approval.recorded is routed by gate:
+ * gate → owning group → group DL or active members (see team.js). A gate no
+ * group owns falls back to the settings-group subscription routing, so a
+ * half-configured team never silently drops what the old routing would send.
  */
-async function notify(store, event, context = {}) {
+async function notify(store, event, context = {}, team = null) {
   const template = TEMPLATES[event];
   if (!template) return { status: 'skipped', event, reason: `no template for ${event}` };
 
-  let recipients;
+  let to;
+  let routed = null;
   let cfg;
   try {
     if (!store.configured()) {
       return { status: 'skipped', event, reason: 'mail is not configured on this server' };
     }
-    recipients = store.recipients(event);
     cfg = store.mail();
+
+    const gate = event === 'approval.recorded' ? context.record && context.record.gate : null;
+    const resolution = team && gate ? team.recipients(gate) : null;
+    if (resolution) {
+      if (!resolution.emails.length) {
+        return {
+          status: 'skipped', event,
+          reason: `${resolution.group_name} owns ${gate} but has no active members and no DL`,
+        };
+      }
+      to = resolution.emails;
+      routed = { group_id: resolution.group_id, group_name: resolution.group_name, via: resolution.via };
+    } else {
+      to = store.recipients(event).map(r => r.email);
+    }
   } catch (err) {
-    // A corrupt settings file should not take the approval down with it.
+    // A corrupt settings or team file should not take the approval down with it.
     return { status: 'failed', event, recipients: [], error: String(err && err.message || err) };
   }
 
-  if (!recipients.length) {
+  if (!to.length) {
     return { status: 'skipped', event, reason: `no configuration group subscribes to ${event}` };
   }
 
-  const { subject, text } = template(context);
-  const to = recipients.map(r => r.email);
+  const { subject, text } = template({ ...context, routed });
   try {
     const res = await sendMail(cfg, { to, subject, text });
     return {
@@ -86,6 +107,7 @@ async function notify(store, event, context = {}) {
       recipients: res.accepted,
       refused: res.refused.map(r => r.address),
       message_id: res.message_id,
+      ...(routed ? { routed } : {}),
     };
   } catch (err) {
     return {

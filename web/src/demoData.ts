@@ -1692,6 +1692,12 @@ export const DEMO: Record<string, unknown> = {
           "RG-Ver"
         ],
         "ready_to_merge": false,
+        "routing": {
+          "group_id": "grp_demo_qa",
+          "group_name": "QA",
+          "via": "dl",
+          "recipient_count": 1
+        },
         "decision": null
       }
     ],
@@ -1705,6 +1711,160 @@ export const DEMO: Record<string, unknown> = {
       "RG-Sec",
       "G4"
     ]
+  },
+  "/api/team": {
+    "people": [
+      {
+        "id": "per_demo_mahitha",
+        "name": "Mahitha",
+        "email": "mahitha@example.com",
+        "jira_account": "mahitha",
+        "github_handle": "mahitha-dev",
+        "active": true,
+        "created_at": "2026-08-20T10:00:00.000Z",
+        "updated_at": "2026-08-20T10:00:00.000Z"
+      },
+      {
+        "id": "per_demo_nakul",
+        "name": "Nakul",
+        "email": "nakul@example.com",
+        "jira_account": "nakul",
+        "github_handle": "nakul-dev",
+        "active": true,
+        "created_at": "2026-08-20T10:01:00.000Z",
+        "updated_at": "2026-08-20T10:01:00.000Z"
+      },
+      {
+        "id": "per_demo_kalimuthu",
+        "name": "Kalimuthu",
+        "email": "kalimuthu@example.com",
+        "jira_account": "kalimuthu",
+        "github_handle": null,
+        "active": true,
+        "created_at": "2026-08-20T10:02:00.000Z",
+        "updated_at": "2026-08-20T10:02:00.000Z"
+      },
+      {
+        "id": "per_demo_priya",
+        "name": "Priya",
+        "email": "priya@example.com",
+        "jira_account": null,
+        "github_handle": null,
+        "active": false,
+        "created_at": "2026-08-20T10:03:00.000Z",
+        "updated_at": "2026-08-25T09:00:00.000Z"
+      },
+      {
+        "id": "per_demo_asha",
+        "name": "Asha",
+        "email": "asha@example.com",
+        "jira_account": "asha",
+        "github_handle": null,
+        "active": true,
+        "created_at": "2026-08-20T10:04:00.000Z",
+        "updated_at": "2026-08-20T10:04:00.000Z"
+      },
+      {
+        "id": "per_demo_ravi",
+        "name": "Ravi",
+        "email": "ravi@example.com",
+        "jira_account": "ravi",
+        "github_handle": null,
+        "active": true,
+        "created_at": "2026-08-20T10:05:00.000Z",
+        "updated_at": "2026-08-20T10:05:00.000Z"
+      }
+    ],
+    "groups": [
+      {
+        "id": "grp_demo_ba",
+        "name": "Business analysis",
+        "type": "ba",
+        "owns_gate": "DoR",
+        "group_email": null,
+        "member_ids": ["per_demo_ravi"],
+        "approval_mode": "standing_delegation",
+        "escalation_order": [{ "person_id": "per_demo_ravi", "timeout_hours": 24 }],
+        "created_at": "2026-08-20T11:00:00.000Z",
+        "updated_at": "2026-08-20T11:00:00.000Z"
+      },
+      {
+        "id": "grp_demo_leads",
+        "name": "Team leads",
+        "type": "dev",
+        "owns_gate": "RG-TL",
+        "group_email": null,
+        "member_ids": ["per_demo_mahitha"],
+        "approval_mode": "active_review",
+        "escalation_order": [{ "person_id": "per_demo_mahitha", "timeout_hours": 24 }],
+        "created_at": "2026-08-20T11:01:00.000Z",
+        "updated_at": "2026-08-20T11:01:00.000Z"
+      },
+      {
+        "id": "grp_demo_dev",
+        "name": "Developers",
+        "type": "dev",
+        "owns_gate": "RG-Dev",
+        "group_email": "dev-review@example.com",
+        "member_ids": ["per_demo_mahitha", "per_demo_nakul"],
+        "approval_mode": "active_review",
+        "escalation_order": [
+          { "person_id": "per_demo_mahitha", "timeout_hours": 24 },
+          { "person_id": "per_demo_nakul", "timeout_hours": 48 }
+        ],
+        "created_at": "2026-08-20T11:02:00.000Z",
+        "updated_at": "2026-08-20T11:02:00.000Z"
+      },
+      {
+        "id": "grp_demo_qa",
+        "name": "QA",
+        "type": "qa",
+        "owns_gate": "RG-Ver",
+        "group_email": "qa-review@example.com",
+        "member_ids": ["per_demo_priya", "per_demo_nakul"],
+        "approval_mode": "active_review",
+        "escalation_order": [{ "person_id": "per_demo_nakul", "timeout_hours": 24 }],
+        "created_at": "2026-08-20T11:03:00.000Z",
+        "updated_at": "2026-08-20T11:03:00.000Z"
+      },
+      {
+        "id": "grp_demo_sec",
+        "name": "Security",
+        "type": "security",
+        "owns_gate": "RG-Sec",
+        "group_email": null,
+        "member_ids": ["per_demo_asha"],
+        "approval_mode": "active_review",
+        "escalation_order": [{ "person_id": "per_demo_asha", "timeout_hours": 12 }],
+        "created_at": "2026-08-20T11:04:00.000Z",
+        "updated_at": "2026-08-20T11:04:00.000Z"
+      },
+      {
+        "id": "grp_demo_release",
+        "name": "Release",
+        "type": "devops",
+        "owns_gate": "G4",
+        "group_email": null,
+        "member_ids": ["per_demo_kalimuthu"],
+        "approval_mode": "active_review",
+        "escalation_order": [{ "person_id": "per_demo_kalimuthu", "timeout_hours": 24 }],
+        "created_at": "2026-08-20T11:05:00.000Z",
+        "updated_at": "2026-08-20T11:05:00.000Z"
+      }
+    ],
+    "coverage": {
+      "DoR": "grp_demo_ba",
+      "RG-TL": "grp_demo_leads",
+      "RG-Dev": "grp_demo_dev",
+      "RG-Test": null,
+      "RG-Ver": "grp_demo_qa",
+      "RG-Sec": "grp_demo_sec",
+      "G4": "grp_demo_release"
+    },
+    "gate_order": ["DoR", "RG-TL", "RG-Dev", "RG-Test", "RG-Ver", "RG-Sec", "G4"],
+    "group_types": ["dev", "qa", "devops", "ba", "security"],
+    "approval_modes": ["active_review", "standing_delegation"],
+    "team_path": "(static demo — nothing is stored)"
   },
   "/api/config": {
     "log_path": "(static demo)",

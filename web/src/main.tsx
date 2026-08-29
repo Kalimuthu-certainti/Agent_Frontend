@@ -8,10 +8,11 @@ import { CommandDeck } from './CommandDeck';
 import { TicketView } from './TicketView';
 import { Usage } from './Usage';
 import { Approvals } from './Approvals';
+import { Team, teamDirty } from './Team';
 import { RequirementEditor } from './RequirementEditor';
 import { Configuration } from './Configuration';
 
-type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'requirement' | 'config';
+type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'team' | 'requirement' | 'config';
 
 const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] = [
   { id: 'deck', label: 'Command deck', title: 'Command deck',
@@ -22,6 +23,8 @@ const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] 
     lede: 'Where tokens and money went. Measures that were never recorded are withheld rather than plotted as zero.' },
   { id: 'approvals', label: 'Approvals', title: 'Approvals',
     lede: 'Everything waiting on a human decision, with enough context to decide without leaving this screen.' },
+  { id: 'team', label: 'Team', title: 'Team & routing',
+    lede: 'Who gets mailed for each gate. Approvals shows the decisions; this configures where those decision requests are routed.' },
   { id: 'requirement', label: 'Requirement', title: 'Requirement editor',
     lede: 'Write a requirement straight into Jira, labelled for agent intake.' },
   { id: 'config', label: 'Configuration', title: 'Configuration',
@@ -48,7 +51,13 @@ function App() {
   const waiting = approvals.data?.items.filter(i => !i.decision).length ?? 0;
   const meta = SURFACES.find(s => s.id === surface)!;
 
-  const openTicket = (k: string) => { setTicketKey(k); setSurface('ticket'); };
+  // Leaving Team with unsaved routing would silently drop the draft — warn first.
+  const goTo = (id: SurfaceId) => {
+    if (surface === 'team' && id !== 'team' && teamDirty.current
+      && !window.confirm('The Team screen has unsaved routing changes. Leave and discard them?')) return;
+    setSurface(id);
+  };
+  const openTicket = (k: string) => { setTicketKey(k); goTo('ticket'); };
 
   return (
     <div className="shell">
@@ -60,7 +69,7 @@ function App() {
 
         <div className="rail-nav">
           {SURFACES.map(s => (
-            <button key={s.id} onClick={() => setSurface(s.id)}
+            <button key={s.id} onClick={() => goTo(s.id)}
               aria-current={surface === s.id ? 'page' : undefined}>
               <span>{s.label}</span>
               {s.id === 'approvals' && waiting > 0 && <span className="pip">{waiting}</span>}
@@ -101,6 +110,7 @@ function App() {
         {surface === 'ticket' && <TicketView ticketKey={ticketKey} onPick={setTicketKey} />}
         {surface === 'usage' && <Usage />}
         {surface === 'approvals' && <Approvals />}
+        {surface === 'team' && <Team />}
         {surface === 'requirement' && <RequirementEditor />}
         {surface === 'config' && <Configuration />}
       </main>
