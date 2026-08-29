@@ -28,25 +28,27 @@ export async function getJson<T>(path: string): Promise<T> {
   return body as T;
 }
 
-async function writeJson<T>(method: 'POST' | 'PATCH', path: string, payload: unknown): Promise<T> {
+async function write<T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, payload?: unknown): Promise<T> {
   if (STATIC_DEMO) {
     throw new ApiError(
-      'This is a read-only demo hosted on GitHub Pages. Changes need the backend, which is not ' +
-      'connected here — run the full app (npm start) to record them.',
+      'This is a read-only demo hosted on GitHub Pages. Decisions, Jira writes and configuration ' +
+      'changes need the backend, which is not connected here — run the full app to record them.',
       'static_demo');
   }
   const res = await fetch(path, {
     method,
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify(payload),
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(body?.message ?? `HTTP ${res.status}`, body?.error ?? 'http_error', body);
   return body as T;
 }
 
-export const postJson = <T>(path: string, payload: unknown) => writeJson<T>('POST', path, payload);
-export const patchJson = <T>(path: string, payload: unknown) => writeJson<T>('PATCH', path, payload);
+export const postJson = <T,>(path: string, payload: unknown) => write<T>('POST', path, payload);
+export const putJson = <T,>(path: string, payload: unknown) => write<T>('PUT', path, payload);
+export const patchJson = <T,>(path: string, payload: unknown) => write<T>('PATCH', path, payload);
+export const deleteJson = <T,>(path: string) => write<T>('DELETE', path);
 
 export interface Poll<T> { data: T | null; error: Error | null; loading: boolean; reload: () => void }
 

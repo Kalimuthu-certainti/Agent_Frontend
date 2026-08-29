@@ -1,243 +1,333 @@
 'use strict';
 
 /**
- * Team & routing — the config the Mailer reads to decide WHO gets an approval
- * request for each gate. Changing a recipient is an edit here (driven from the
- * UI), never a code change.
+ * Team & mail-routing store — who gets mailed for each gate.
  *
- * People belong to groups; each group owns at most one gate. When the agent
- * needs a gate approved, the Mailer calls resolveRecipients(gate) → the owning
- * group's distribution list, or its active members. A reply only counts if the
- * sender is one of those addresses (isMember).
+ * File-backed at .agent/team.json, Postgres behind the same seam later, exactly
+ * like the settings store next door. The Mailer reads only this config, so
+ * changing a recipient is a UI action, never a code change.
  *
- * Same seam idea as the run log: file-backed today (.agent/team.json), a
- * PgTeamStore with the same methods later. The guards live here — the server and
- * the UI both call them, but this is the one that decides truth.
+ * The model, from TEAM-MODEL.md:
+ *
+ *   PERSON  id, name, email (unique), jira_account, github_handle, active
+ *   GROUP   id, name, type (dev|qa|devops|ba|security), owns_gate (one gate,
+ *           one owner), group_email (a DL that wins over per-member mail),
+ *           member_ids, approval_mode, escalation_order
+ *
+ * Guards enforced here — the client guard is UX, this one is truth:
+ *
+ *  - email valid and unique across people
+ *  - a gate has exactly one owning group; assigning it moves it (the UI asks
+ *    for confirmation, the store just does the move atomically)
+ *  - a group that owns a gate is never left without an active member by a
+ *    GROUP write. Deactivating a PERSON is allowed — that is a fact about the
+ *    world, not a config edit — and the payload flags the group empty instead.
+ *  - a security group is always active review
+ *  - escalation rungs reference members only, with positive timeouts
  */
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { GATE_ORDER } = require('./runLog');
 
 const DEFAULT_TEAM_PATH = process.env.AGENT_TEAM
   || path.join(__dirname, '..', '.agent', 'team.json');
 
-// Gates that route to a human group. Every gate except DoR, which the agent
-// checks itself. Sourced from the run log's GATE_ORDER so the panel keeps ONE
-// gate vocabulary rather than inventing a second.
-const ROUTABLE_GATES = GATE_ORDER.filter(g => g !== 'DoR');
-const GROUP_TYPES = ['dev', 'qa', 'tl', 'devops', 'ba', 'security'];
-const APPROVAL_MODES = ['active-review', 'standing-delegation'];
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const GROUP_TYPES = ['dev', 'qa', 'devops', 'ba', 'security'];
+const APPROVAL_MODES = ['active_review', 'standing_delegation'];
+const DEFAULT_TIMEOUT_HOURS = 24;
+
+const empty = () => ({ people: [], groups: [] });
 
 class TeamError extends Error {
-  constructor(message, code = 'BAD_REQUEST', details) {
+  constructor(message, code = 'BAD_REQUEST', extra) {
     super(message);
     this.code = code;
-    this.details = details;
+    if (extra) Object.assign(this, extra);
   }
 }
 
-const newId = prefix => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
-const normEmail = e => String(e || '').trim().toLowerCase();
+const trim = v => String(v ?? '').trim();
+const isEmail = v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+const newId = prefix => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 
 class FileTeamStore {
   constructor(filePath = DEFAULT_TEAM_PATH) {
     this.filePath = filePath;
   }
 
-  _load() {
+  read() {
     let raw;
-    try { raw = fs.readFileSync(this.filePath, 'utf8'); }
-    catch (err) { if (err.code === 'ENOENT') return { people: [], groups: [] }; throw err; }
-    let j;
-    try { j = JSON.parse(raw); } catch { throw new TeamError('team store is corrupt JSON', 'CORRUPT'); }
-    return {
-      people: Array.isArray(j.people) ? j.people : [],
-      groups: Array.isArray(j.groups) ? j.groups : [],
-    };
-  }
-
-  _save(data) {
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2) + '\n', 'utf8');
-  }
-
-  /** The full config plus derived coverage — what the UI renders. */
-  state() {
-    const { people, groups } = this._load();
-    const activeCount = g => g.members
-      .map(id => people.find(p => p.id === id))
-      .filter(p => p && p.active).length;
-
-    const decorated = groups.map(g => ({ ...g, active_members: activeCount(g) }));
-    const coverage = {};
-    for (const gate of ROUTABLE_GATES) {
-      const owner = decorated.find(g => g.owns_gate === gate);
-      coverage[gate] = owner ? owner.id : null;
+    try {
+      raw = fs.readFileSync(this.filePath, 'utf8');
+    } catch (err) {
+      if (err.code === 'ENOENT') return empty();
+      throw err;
     }
-    const unassigned = ROUTABLE_GATES.filter(gate => !coverage[gate]);
-    // A group owns a gate but has no active member to mail — a real hole.
-    const starved = decorated.filter(g => g.owns_gate && g.active_members === 0).map(g => g.owns_gate);
-
+    let doc;
+    try { doc = JSON.parse(raw); } catch {
+      // A corrupt team file is not "no team" — say so rather than silently
+      // resetting the routing to nobody.
+      throw new TeamError(`team file is not valid JSON: ${this.filePath}`, 'CORRUPT');
+    }
     return {
-      people,
-      groups: decorated,
-      coverage,
-      routable_gates: ROUTABLE_GATES,
-      group_types: GROUP_TYPES,
-      approval_modes: APPROVAL_MODES,
-      unassigned_gates: unassigned,
-      starved_gates: starved,
+      people: Array.isArray(doc.people) ? doc.people : [],
+      groups: Array.isArray(doc.groups) ? doc.groups : [],
     };
   }
 
-  // ---- people --------------------------------------------------------------
+  write(doc) {
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    const tmp = `${this.filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, this.filePath);
+    return doc;
+  }
 
-  addPerson({ name, email, jira_account, github_handle, active = true }) {
-    const { people, groups } = this._load();
-    this._validatePerson({ name, email }, people, null);
+  people() { return this.read().people; }
+  groups() { return this.read().groups; }
+  person(id) { return this.people().find(p => p.id === id) || null; }
+  group(id) { return this.groups().find(g => g.id === id) || null; }
+
+  /* ---------------- people ---------------- */
+
+  createPerson(input = {}) {
+    const doc = this.read();
     const person = {
-      id: newId('p'),
-      name: String(name).trim(),
-      email: normEmail(email),
-      active: active !== false,
-      jira_account: jira_account ? String(jira_account).trim() : null,
-      github_handle: github_handle ? String(github_handle).trim() : null,
+      id: newId('per'),
+      ...this.#personFields(input, doc, null),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
-    people.push(person);
-    this._save({ people, groups });
+    doc.people.push(person);
+    this.write(doc);
     return person;
   }
 
-  updatePerson(id, patch) {
-    const { people, groups } = this._load();
-    const p = people.find(x => x.id === id);
-    if (!p) throw new TeamError('no such person', 'NOT_FOUND');
-    if (patch.name !== undefined || patch.email !== undefined) {
-      this._validatePerson({ name: patch.name ?? p.name, email: patch.email ?? p.email }, people, id);
-    }
-    if (patch.name !== undefined) p.name = String(patch.name).trim();
-    if (patch.email !== undefined) p.email = normEmail(patch.email);
-    if (patch.jira_account !== undefined) p.jira_account = patch.jira_account ? String(patch.jira_account).trim() : null;
-    if (patch.github_handle !== undefined) p.github_handle = patch.github_handle ? String(patch.github_handle).trim() : null;
-    if (patch.active !== undefined) p.active = Boolean(patch.active);
-    this._save({ people, groups });
-    return p;
+  updatePerson(id, input = {}) {
+    const doc = this.read();
+    const i = doc.people.findIndex(p => p.id === id);
+    if (i === -1) throw new TeamError(`no person ${id}`, 'NOT_FOUND');
+    const merged = { ...doc.people[i], ...input };
+    doc.people[i] = {
+      ...doc.people[i],
+      ...this.#personFields(merged, doc, id),
+      updated_at: new Date().toISOString(),
+    };
+    this.write(doc);
+    return doc.people[i];
   }
 
-  _validatePerson({ name, email }, people, selfId) {
-    if (!String(name || '').trim()) throw new TeamError('name is required');
-    if (!EMAIL_RE.test(String(email || '').trim())) throw new TeamError('a valid email is required');
-    const norm = normEmail(email);
-    if (people.some(p => p.email === norm && p.id !== selfId)) {
-      throw new TeamError('that email is already on the roster', 'DUPLICATE');
-    }
-  }
-
-  // ---- groups --------------------------------------------------------------
-
-  addGroup(input) {
-    const { people, groups } = this._load();
-    const group = this._buildGroup(input, null, people, groups);
-    groups.push(group);
-    this._save({ people, groups });
-    return group;
-  }
-
-  updateGroup(id, input) {
-    const { people, groups } = this._load();
-    const idx = groups.findIndex(g => g.id === id);
-    if (idx < 0) throw new TeamError('no such group', 'NOT_FOUND');
-    const merged = { ...groups[idx], ...input, id };
-    groups[idx] = this._buildGroup(merged, id, people, groups);
-    this._save({ people, groups });
-    return groups[idx];
-  }
-
-  _buildGroup(input, selfId, people, groups) {
-    const name = String(input.name || '').trim();
-    if (!name) throw new TeamError('group name is required');
-
-    const type = input.type || 'dev';
-    if (!GROUP_TYPES.includes(type)) throw new TeamError(`type must be one of ${GROUP_TYPES.join(', ')}`);
-
-    const owns_gate = input.owns_gate ?? null;
-    if (owns_gate !== null && !ROUTABLE_GATES.includes(owns_gate)) {
-      throw new TeamError(`owns_gate must be one of ${ROUTABLE_GATES.join(', ')}`);
-    }
-    // Exactly one group per gate.
-    if (owns_gate && groups.some(g => g.owns_gate === owns_gate && g.id !== selfId)) {
-      throw new TeamError(`${owns_gate} is already owned by another group`, 'GATE_TAKEN', { gate: owns_gate });
-    }
-
-    const members = Array.isArray(input.members) ? [...new Set(input.members)] : [];
-    for (const m of members) {
-      if (!people.some(p => p.id === m)) throw new TeamError('a member is not on the roster');
-    }
-
-    // A gate that routes to nobody is worse than no gate. A group that OWNS a
-    // gate must have at least one active member to receive the mail.
-    if (owns_gate) {
-      const active = members.map(id => people.find(p => p.id === id)).filter(p => p && p.active);
-      const hasDL = Boolean(input.group_email && String(input.group_email).trim());
-      if (active.length === 0 && !hasDL) {
-        throw new TeamError(
-          `a group owning ${owns_gate} needs at least one active member, or a distribution-list address`,
-          'EMPTY_OWNER');
-      }
-    }
-
-    let approval_mode = input.approval_mode || 'active-review';
-    if (!APPROVAL_MODES.includes(approval_mode)) {
-      throw new TeamError(`approval_mode must be one of ${APPROVAL_MODES.join(', ')}`);
-    }
-    // Security is always active review — never a standing delegation.
-    const isSecurity = type === 'security' || owns_gate === 'RG-Sec';
-    if (isSecurity) approval_mode = 'active-review';
-
-    const group_email = input.group_email ? normEmail(input.group_email) : null;
-    if (group_email && !EMAIL_RE.test(group_email)) throw new TeamError('group_email must be a valid email');
-
-    const escalation_order = [];
-    const rawEsc = Array.isArray(input.escalation_order) ? input.escalation_order : [];
-    for (const e of rawEsc) {
-      const pid = e && e.person_id;
-      if (!members.includes(pid)) throw new TeamError('escalation order can only contain group members');
-      const t = Number(e.timeout_hours);
-      if (!Number.isFinite(t) || t <= 0) throw new TeamError('each escalation rung needs a positive timeout (hours)');
-      escalation_order.push({ person_id: pid, timeout_hours: t });
-    }
-
+  #personFields(input, doc, selfId) {
+    const name = trim(input.name);
+    const email = trim(input.email).toLowerCase();
+    if (!name) throw new TeamError('a person needs a name');
+    if (!email) throw new TeamError('a person needs an email address');
+    if (!isEmail(email)) throw new TeamError(`"${email}" is not a valid email address`);
+    const clash = doc.people.find(p => p.id !== selfId && p.email === email);
+    if (clash) throw new TeamError(`${email} already belongs to ${clash.name}`, 'DUPLICATE');
     return {
-      id: selfId || newId('g'),
-      name, type, owns_gate, group_email, members, approval_mode, escalation_order,
+      name,
+      email,
+      jira_account: trim(input.jira_account) || null,
+      github_handle: trim(input.github_handle) || null,
+      // Deactivation is soft: the person stays in history and in member lists,
+      // but is never mailed and never counts as an approver.
+      active: input.active === undefined ? true : Boolean(input.active),
     };
   }
 
-  // ---- the Mailer's questions ----------------------------------------------
+  /* ---------------- groups ---------------- */
 
-  /** Who to mail for a gate. Empty recipients is stated, never faked. */
-  resolveRecipients(gate) {
-    const { people, groups } = this._load();
-    const group = groups.find(g => g.owns_gate === gate);
-    if (!group) return { gate, group: null, via: null, recipients: [], reason: 'no group owns this gate' };
-    if (group.group_email) return { gate, group: group.name, via: 'distribution-list', recipients: [group.group_email] };
-    const recipients = group.members
-      .map(id => people.find(p => p.id === id))
-      .filter(p => p && p.active)
-      .map(p => p.email);
-    return { gate, group: group.name, via: 'members', recipients };
+  createGroup(input = {}) {
+    const doc = this.read();
+    const group = {
+      id: newId('grp'),
+      ...this.#groupFields(input, doc, null),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    this.#claimGate(doc, group.owns_gate, group.id);
+    this.#requireActiveMemberIfOwning(group, doc);
+    doc.groups.push(group);
+    this.write(doc);
+    return group;
   }
 
-  /** Does an inbound reply address count as an approver for this gate? */
-  isMember(gate, email) {
-    const r = this.resolveRecipients(gate);
-    return r.recipients.includes(normEmail(email));
+  updateGroup(id, input = {}) {
+    const doc = this.read();
+    const i = doc.groups.findIndex(g => g.id === id);
+    if (i === -1) throw new TeamError(`no group ${id}`, 'NOT_FOUND');
+    const merged = { ...doc.groups[i], ...input };
+    const next = {
+      ...doc.groups[i],
+      ...this.#groupFields(merged, doc, id),
+      updated_at: new Date().toISOString(),
+    };
+    this.#claimGate(doc, next.owns_gate, id);
+    this.#requireActiveMemberIfOwning(next, doc);
+    doc.groups[i] = next;
+    this.write(doc);
+    return next;
+  }
+
+  /** One gate, one owner: claiming a gate silently releases it from any other
+   *  group in the same write, so the two can never disagree. The confirmation
+   *  ("RG-Dev is owned by Developers — move it here?") is the UI's job. */
+  #claimGate(doc, gate, ownerId) {
+    if (!gate) return;
+    for (const g of doc.groups) {
+      if (g.id !== ownerId && g.owns_gate === gate) {
+        g.owns_gate = null;
+        g.updated_at = new Date().toISOString();
+      }
+    }
+  }
+
+  /** The hard guard: a config write may not leave a gate routed to nobody. */
+  #requireActiveMemberIfOwning(group, doc) {
+    if (!group.owns_gate) return;
+    const active = group.member_ids
+      .map(id => doc.people.find(p => p.id === id))
+      .filter(p => p && p.active);
+    if (active.length === 0) {
+      throw new TeamError(
+        `${group.name} owns ${group.owns_gate} but has no active members — ` +
+        'approval requests for that gate would reach nobody. Add a member or release the gate.',
+        'EMPTY_GROUP');
+    }
+  }
+
+  #groupFields(input, doc, selfId) {
+    const name = trim(input.name);
+    const type = trim(input.type);
+    if (!name) throw new TeamError('a group needs a name');
+    if (!GROUP_TYPES.includes(type)) {
+      throw new TeamError(`type must be one of ${GROUP_TYPES.join(', ')}`);
+    }
+    const clash = doc.groups.find(g => g.id !== selfId && g.name.toLowerCase() === name.toLowerCase());
+    if (clash) throw new TeamError(`a group called "${clash.name}" already exists`, 'DUPLICATE');
+
+    const owns_gate = input.owns_gate ? trim(input.owns_gate) : null;
+    if (owns_gate && !GATE_ORDER.includes(owns_gate)) {
+      throw new TeamError(`unknown gate "${owns_gate}" — this build has ${GATE_ORDER.join(', ')}`);
+    }
+
+    const group_email = trim(input.group_email);
+    if (group_email && !isEmail(group_email)) {
+      throw new TeamError(`"${group_email}" is not a valid DL address`);
+    }
+
+    const rawMembers = Array.isArray(input.member_ids) ? input.member_ids : [];
+    const member_ids = [...new Set(rawMembers.map(trim).filter(Boolean))];
+    for (const id of member_ids) {
+      if (!doc.people.some(p => p.id === id)) {
+        throw new TeamError(`member ${id} is not in the roster`, 'UNKNOWN_MEMBER');
+      }
+    }
+
+    const approval_mode = trim(input.approval_mode) || 'active_review';
+    if (!APPROVAL_MODES.includes(approval_mode)) {
+      throw new TeamError(`approval_mode must be one of ${APPROVAL_MODES.join(', ')}`);
+    }
+    // Security review is a judgement, not a rubber stamp — never delegable.
+    if (type === 'security' && approval_mode !== 'active_review') {
+      throw new TeamError('a security group is always active review — standing delegation is not offered',
+        'SECURITY_LOCKED');
+    }
+
+    const rawEsc = Array.isArray(input.escalation_order) ? input.escalation_order : [];
+    const seen = new Set();
+    const escalation_order = rawEsc.map(r => {
+      const person_id = trim(r && r.person_id);
+      const timeout_hours = r && r.timeout_hours === undefined
+        ? DEFAULT_TIMEOUT_HOURS : Number(r.timeout_hours);
+      if (!member_ids.includes(person_id)) {
+        throw new TeamError(`escalation rung ${person_id || '(empty)'} is not a member of ${name}`,
+          'BAD_ESCALATION');
+      }
+      if (seen.has(person_id)) {
+        throw new TeamError(`escalation lists ${person_id} twice`, 'BAD_ESCALATION');
+      }
+      seen.add(person_id);
+      if (!Number.isFinite(timeout_hours) || timeout_hours <= 0) {
+        throw new TeamError('every escalation timeout must be a positive number of hours', 'BAD_ESCALATION');
+      }
+      return { person_id, timeout_hours };
+    });
+
+    return {
+      name, type, owns_gate,
+      group_email: group_email || null,
+      member_ids, approval_mode, escalation_order,
+    };
+  }
+
+  /* ---------------- routing ---------------- */
+
+  /** {gate: group_id | null} for every gate, in pipeline order. A null is a
+   *  gate whose approval requests would reach nobody — the UI's red chip. */
+  coverage(groups = this.groups()) {
+    const out = {};
+    for (const gate of GATE_ORDER) {
+      const owner = groups.find(g => g.owns_gate === gate);
+      out[gate] = owner ? owner.id : null;
+    }
+    return out;
+  }
+
+  /**
+   * Who gets mailed for `gate` — what the Mailer calls. Resolution:
+   * gate → owning group → the DL if one is set, else each active member.
+   * Returns null when no group owns the gate; `emails` may still be empty
+   * when the owning group has no active members (both are reported, never
+   * silently dropped).
+   */
+  recipients(gate) {
+    const doc = this.read();
+    const group = doc.groups.find(g => g.owns_gate === gate);
+    if (!group) return null;
+    if (group.group_email) {
+      return { group_id: group.id, group_name: group.name, via: 'dl', emails: [group.group_email] };
+    }
+    const emails = group.member_ids
+      .map(id => doc.people.find(p => p.id === id))
+      .filter(p => p && p.active)
+      .map(p => p.email);
+    return { group_id: group.id, group_name: group.name, via: 'members', emails };
+  }
+
+  /** Is this sender allowed to decide for `gate`? Used by the email reply path
+   *  to surface "reply from unknown sender — ignored" instead of a silent drop. */
+  knownSender(gate, email) {
+    const doc = this.read();
+    const group = doc.groups.find(g => g.owns_gate === gate);
+    if (!group) return false;
+    const addr = trim(email).toLowerCase();
+    if (group.group_email && group.group_email.toLowerCase() === addr) return true;
+    return group.member_ids
+      .map(id => doc.people.find(p => p.id === id))
+      .some(p => p && p.active && p.email === addr);
+  }
+
+  /** The GET /api/team payload. The vocabulary comes from the server so the UI
+   *  cannot offer a gate, a type or a mode that this build does not honour. */
+  payload() {
+    const doc = this.read();
+    return {
+      people: doc.people,
+      groups: doc.groups,
+      coverage: this.coverage(doc.groups),
+      gate_order: GATE_ORDER,
+      group_types: GROUP_TYPES,
+      approval_modes: APPROVAL_MODES,
+      team_path: this.filePath,
+    };
   }
 }
 
 module.exports = {
   FileTeamStore, TeamError,
-  ROUTABLE_GATES, GROUP_TYPES, APPROVAL_MODES, DEFAULT_TEAM_PATH,
+  DEFAULT_TEAM_PATH, GROUP_TYPES, APPROVAL_MODES, DEFAULT_TIMEOUT_HOURS,
 };

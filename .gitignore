@@ -2,3 +2,9 @@ node_modules/
 *.log
 web/dist/
 web/*.tsbuildinfo
+
+# Runtime state that must never be committed: the approval audit trail and the
+# settings file, which holds the SMTP password. The seeded .agent/team.json and
+# .agent/run-log.jsonl ARE tracked — they are synthetic demo data.
+.agent/settings.json
+.agent/approvals.jsonl
