@@ -1,11 +1,22 @@
-# Builds the static dashboard and publishes it to GitHub Pages.
-# One-time: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# One workflow, two behaviours, chosen by the trigger:
+#   push to main            -> build + deploy the dashboard to GitHub Pages
+#   "Run workflow" / API     -> send an agent approval mail via Microsoft Graph
+#
+# The Graph credentials come from GitHub Actions Secrets (Settings -> Secrets and
+# variables -> Actions): GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET,
+# MAIL_FROM. They are never committed and never touch the static site.
 name: Deploy dashboard to Pages
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      gate:    { description: 'Send mail — gate (RG-Dev, RG-Test, G4, …). Leave blank to only redeploy.', required: false }
+      subject: { description: 'Email subject', required: false }
+      html:    { description: 'Email body (HTML allowed)', required: false }
+  repository_dispatch:
+    types: [send-mail]
 
 permissions:
   contents: read
@@ -14,10 +25,12 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  # ---- deploy (push only) --------------------------------------------------
   build:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +40,6 @@ jobs:
       - run: npm ci
       - name: Build
         env:
-          # Project Pages serve under /<repo>/. Change if you rename the repo,
-          # or set VITE_BASE '/' for a custom domain at the root.
           VITE_BASE: '/Agent_Frontend/'
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
@@ -36,6 +47,7 @@ jobs:
           path: dist
 
   deploy:
+    if: ${{ github.event_name == 'push' }}
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -44,3 +56,29 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # ---- send mail (manual / API) --------------------------------------------
+  send:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Send mail
+        env:
+          GRAPH_TENANT_ID: ${{ secrets.GRAPH_TENANT_ID }}
+          GRAPH_CLIENT_ID: ${{ secrets.GRAPH_CLIENT_ID }}
+          GRAPH_CLIENT_SECRET: ${{ secrets.GRAPH_CLIENT_SECRET }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          AGENT_TEAM_MD: public/data/team.md
+          GATE: ${{ github.event.inputs.gate || github.event.client_payload.gate }}
+          SUBJECT: ${{ github.event.inputs.subject || github.event.client_payload.subject }}
+          HTML: ${{ github.event.inputs.html || github.event.client_payload.html }}
+        run: |
+          if [ -z "$GATE" ] && [ -z "$TO" ]; then
+            echo "No gate/subject given — nothing to send (this run was a manual redeploy trigger)."
+            exit 0
+          fi
+          node scripts/send-mail.mjs
