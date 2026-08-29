@@ -14,6 +14,12 @@
  *    an object full of empty strings that looks half-set-up.
  *  - The SMTP password never leaves the server. `redacted()` is what the API
  *    returns; the raw value is readable only by the mailer.
+ *
+ * Membership is DERIVED, never stored. A group claims one or more roles, and
+ * everyone holding a claimed role is a member of that group — so a person can
+ * belong to several groups at once, and nobody has to be filed into one by
+ * hand. There is no `group_id` on a user, because two places to say the same
+ * thing is two places to disagree.
  */
 
 const fs = require('fs');
@@ -70,10 +76,16 @@ class FileSettingsStore {
       // silently resetting somebody's configuration to empty.
       throw new SettingsError(`settings file is not valid JSON: ${this.filePath}`, 'CORRUPT');
     }
+    // Normalised on read, so a file written before membership became
+    // role-derived still loads: a group with no roles simply claims none, and a
+    // user's old group_id is dropped rather than half-honoured.
     return {
       mail: doc.mail ?? null,
-      groups: Array.isArray(doc.groups) ? doc.groups : [],
-      users: Array.isArray(doc.users) ? doc.users : [],
+      groups: (Array.isArray(doc.groups) ? doc.groups : []).map(g => ({
+        ...g,
+        roles: Array.isArray(g.roles) ? g.roles.filter(r => ROLES.includes(r)) : [],
+      })),
+      users: (Array.isArray(doc.users) ? doc.users : []).map(({ group_id, ...u }) => u),
     };
   }
 
@@ -172,9 +184,21 @@ class FileSettingsStore {
     return this.groups().find(g => g.id === id) || null;
   }
 
-  /** Members of a group, in registry order. */
+  /**
+   * Members of a group: everyone whose role the group claims, in registry
+   * order. Derived on every read, so adding a user with a claimed role puts
+   * them in the group immediately and no membership list can drift.
+   */
   members(group_id) {
-    return this.read().users.filter(u => u.group_id === group_id);
+    const doc = this.read();
+    const group = doc.groups.find(g => g.id === group_id);
+    if (!group) return [];
+    return doc.users.filter(u => group.roles.includes(u.role));
+  }
+
+  /** The groups one user belongs to — possibly several, possibly none. */
+  groupsFor(user) {
+    return this.read().groups.filter(g => g.roles.includes(user.role));
   }
 
   createGroup(input = {}) {
@@ -205,23 +229,18 @@ class FileSettingsStore {
   }
 
   /**
-   * Refuses while the group still has members. Deleting it silently would
-   * detach people from their notifications without anyone being told.
+   * Deleting a group removes a subscription, never a person: membership is
+   * derived, so its members stay in the registry and simply stop being mailed
+   * about this group's events. The count is reported so the caller can say so.
    */
   deleteGroup(id) {
     const doc = this.read();
     const i = doc.groups.findIndex(g => g.id === id);
     if (i === -1) throw new SettingsError(`no group ${id}`, 'NOT_FOUND');
-    const members = doc.users.filter(u => u.group_id === id);
-    if (members.length) {
-      throw new SettingsError(
-        `${members.length} user${members.length === 1 ? ' is' : 's are'} still in this group ` +
-        `(${members.map(u => u.email).join(', ')}) — move or remove them first`,
-        'GROUP_NOT_EMPTY', { members: members.map(u => u.email) });
-    }
+    const had = doc.users.filter(u => doc.groups[i].roles.includes(u.role)).length;
     const [gone] = doc.groups.splice(i, 1);
     this.write(doc);
-    return gone;
+    return { ...gone, member_count: had };
   }
 
   #groupFields(input, groups, selfId) {
@@ -239,10 +258,22 @@ class FileSettingsStore {
         `unknown event${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')} — ` +
         `this server emits ${EVENTS.join(', ')}`, 'UNKNOWN_EVENT');
     }
+
+    // The roles this group claims. Everyone holding one is a member, so this is
+    // the whole of the membership rule — several groups may claim the same role.
+    const claimed = Array.isArray(input.roles) ? input.roles : [];
+    const badRole = claimed.filter(r => !ROLES.includes(r));
+    if (badRole.length) {
+      throw new SettingsError(
+        `unknown role${badRole.length === 1 ? '' : 's'}: ${badRole.join(', ')} — ` +
+        `this server knows ${ROLES.join(', ')}`, 'UNKNOWN_ROLE');
+    }
+
     return {
       name,
       team,
       description: trim(input.description) || null,
+      roles: [...new Set(claimed)],
       notify_events: [...new Set(raw)],
     };
   }
@@ -305,15 +336,11 @@ class FileSettingsStore {
     const clash = doc.users.find(u => u.id !== selfId && u.email === email);
     if (clash) throw new SettingsError(`${email} is already in the registry`, 'DUPLICATE');
 
-    const group_id = trim(input.group_id) || null;
-    if (group_id && !doc.groups.some(g => g.id === group_id)) {
-      throw new SettingsError(`no group ${group_id}`, 'NOT_FOUND');
-    }
+    // No group here on purpose: the role decides it. See groupsFor().
     return {
       name,
       email,
       role,
-      group_id,
       notify: input.notify === undefined ? true : Boolean(input.notify),
     };
   }
@@ -321,18 +348,21 @@ class FileSettingsStore {
   /* ---------------- notification routing ---------------- */
 
   /**
-   * Who should be emailed about `event`: members of every group subscribed to
-   * it who have not opted out. De-duplicated by address, because one person in
-   * two subscribed groups is still one email.
+   * Who should be emailed about `event`: everyone whose role is claimed by a
+   * group subscribed to it, minus those who opted out. De-duplicated, because
+   * one person in two subscribed groups is still one email.
    */
   recipients(event) {
     const doc = this.read();
-    const subscribed = new Set(
-      doc.groups.filter(g => (g.notify_events || []).includes(event)).map(g => g.id));
+    const roles = new Set();
+    for (const g of doc.groups) {
+      if (!(g.notify_events || []).includes(event)) continue;
+      for (const r of g.roles) roles.add(r);
+    }
     const seen = new Set();
     const out = [];
     for (const u of doc.users) {
-      if (!u.notify || !u.group_id || !subscribed.has(u.group_id)) continue;
+      if (!u.notify || !roles.has(u.role)) continue;
       if (seen.has(u.email)) continue;
       seen.add(u.email);
       out.push(u);

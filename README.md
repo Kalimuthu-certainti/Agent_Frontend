@@ -50,13 +50,19 @@ The **Configuration** screen has three sections, in the order the chain runs:
    browser: the screen is told only whether one is stored, and leaving the field
    untouched keeps it. **Send test** proves the route and prints the SMTP
    transcript — saved settings and working delivery are different claims.
-2. **Configuration groups** — a team plus the events worth emailing it about.
-   The only events offered are the ones this server actually emits:
-   `approval.recorded` and `requirement.created`. A group with members cannot be
-   deleted until they are moved.
-3. **Users** — the notification registry: name, email, role
-   (`owner` / `approver` / `viewer`) and group. Each row states plainly whether
-   that person will really be emailed, and if not, why not.
+2. **Configuration groups** — a team, the roles it claims, and the events worth
+   emailing it about. The only events offered are the ones this server actually
+   emits: `approval.recorded` and `requirement.created`. Open a group to see its
+   members and what each one's role lets them do.
+3. **Users** — the notification registry: name, email and role
+   (`owner` / `approver` / `viewer`). There is no group field: **membership is
+   derived from the role.** Everyone holding a role a group claims is a member
+   of it, so one person can belong to several groups at once, changing a role
+   moves them, and no membership list can drift from the registry. Each row
+   states plainly whether that person will really be emailed, and if not, why not.
+
+Deleting a group removes a subscription, never a person — its members stay in
+the registry and simply stop being mailed about that group's events.
 
 This is a registry, **not** a login — the panel still has no authentication.
 

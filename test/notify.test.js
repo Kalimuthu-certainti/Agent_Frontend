@@ -53,7 +53,8 @@ const RECORD = {
 
 test('with no mail configured it skips, and says why', async () => {
   const s = store();
-  s.createGroup({ name: 'Approvers', team: 'Platform', notify_events: ['approval.recorded'] });
+  s.createGroup({ name: 'Approvers', team: 'Platform', roles: ['approver'],
+    notify_events: ['approval.recorded'] });
   const out = await notify(s, 'approval.recorded', { record: RECORD });
   assert.strictEqual(out.status, 'skipped');
   assert.match(out.reason, /not configured/);
@@ -64,7 +65,7 @@ test('with mail configured but nobody subscribed it skips rather than mailing no
   try {
     const s = store();
     withMail(s, smtp.port);
-    s.createUser({ name: 'Alex', email: 'alex@example.com' }); // in no group
+    s.createUser({ name: 'Alex', email: 'alex@example.com', role: 'viewer' }); // role claimed by nobody
     const out = await notify(s, 'approval.recorded', { record: RECORD });
     assert.strictEqual(out.status, 'skipped');
     assert.match(out.reason, /no configuration group subscribes/);
@@ -77,8 +78,9 @@ test('mails the subscribed group, with the decision in the body', async () => {
   try {
     const s = store();
     withMail(s, smtp.port);
-    const g = s.createGroup({ name: 'Approvers', team: 'Platform', notify_events: ['approval.recorded'] });
-    s.createUser({ name: 'Alex', email: 'alex@example.com', group_id: g.id });
+    s.createGroup({ name: 'Approvers', team: 'Platform', roles: ['approver'],
+      notify_events: ['approval.recorded'] });
+    s.createUser({ name: 'Alex', email: 'alex@example.com', role: 'approver' });
 
     const out = await notify(s, 'approval.recorded', { record: RECORD, base_url: 'http://panel.test' });
     assert.strictEqual(out.status, 'sent');
@@ -95,8 +97,9 @@ test('mails the subscribed group, with the decision in the body', async () => {
 test('an unreachable mail server is reported, never thrown into the caller', async () => {
   const s = store();
   s.saveMail({ host: '127.0.0.1', port: 1, security: 'none', from_email: 'bot@example.com' });
-  const g = s.createGroup({ name: 'Approvers', team: 'Platform', notify_events: ['approval.recorded'] });
-  s.createUser({ name: 'Alex', email: 'alex@example.com', group_id: g.id });
+  s.createGroup({ name: 'Approvers', team: 'Platform', roles: ['approver'],
+    notify_events: ['approval.recorded'] });
+  s.createUser({ name: 'Alex', email: 'alex@example.com', role: 'approver' });
 
   const out = await notify(s, 'approval.recorded', { record: RECORD });
   assert.strictEqual(out.status, 'failed', 'the approval itself must still stand');

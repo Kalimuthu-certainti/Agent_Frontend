@@ -375,13 +375,10 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     if (err instanceof SettingsError) {
       const status = err.code === 'NOT_FOUND' ? 404
-        : err.code === 'DUPLICATE' || err.code === 'GROUP_NOT_EMPTY' ? 409
+        : err.code === 'DUPLICATE' ? 409
         : err.code === 'NOT_CONFIGURED' ? 501
         : err.code === 'CORRUPT' ? 500 : 400;
-      return sendJson(res, status, {
-        error: err.code, message: err.message,
-        ...(err.members ? { members: err.members } : {}),
-      });
+      return sendJson(res, status, { error: err.code, message: err.message });
     }
     if (err instanceof MailError) {
       // 502: this server is fine, the mail server refused or was unreachable.
