@@ -1,6 +1,6 @@
-# Builds the static-demo frontend and publishes it to GitHub Pages.
-# Enable once: repo Settings → Pages → Build and deployment → Source: "GitHub Actions".
-name: Deploy static demo to Pages
+# Builds the static dashboard and publishes it to GitHub Pages.
+# One-time: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+name: Deploy dashboard to Pages
 
 on:
   push:
@@ -24,20 +24,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install web deps
-        working-directory: web
-        run: npm ci
-      - name: Build static demo
-        working-directory: web
+      - run: npm ci
+      - name: Build
         env:
-          VITE_STATIC: '1'
-          # Project Pages serve under /<repo>/. Change if you rename the repo
-          # or attach a custom domain (then set VITE_BASE: '/').
+          # Project Pages serve under /<repo>/. Change if you rename the repo,
+          # or set VITE_BASE '/' for a custom domain at the root.
           VITE_BASE: '/Agent_Frontend/'
         run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/dist
+          path: dist
 
   deploy:
     needs: build
