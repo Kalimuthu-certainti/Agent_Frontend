@@ -1,18 +1,24 @@
 {
   "name": "agent-control-panel",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Read-only dashboard over the dev-agent run log. File-backed today, Postgres behind the same seam later.",
-  "main": "src/server.js",
+  "type": "module",
+  "description": "Read-only dashboard over the dev-agent's committed files. No backend.",
   "scripts": {
-    "start": "node src/server.js",
-    "test": "node --test test/*.test.js",
-    "build": "npm --prefix web run build",
-    "dev": "npm --prefix web run dev"
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
   },
-  "engines": {
-    "node": ">=18"
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.15.0"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
 }
