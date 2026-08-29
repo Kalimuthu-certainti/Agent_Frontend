@@ -40,6 +40,40 @@ In the real build the screens read a live run log and the Approve / Bounce and
 requirement actions write for real. See the backend under `src/` and the record
 contract in the code comments.
 
+## Configuration — mail, groups and users
+
+The **Configuration** screen has three sections, in the order the chain runs:
+
+1. **Mail** — the SMTP server notifications leave through. Saved on the server
+   at `.agent/settings.json` (override with `AGENT_SETTINGS`), which is
+   git-ignored because it holds the password. The password is never sent to the
+   browser: the screen is told only whether one is stored, and leaving the field
+   untouched keeps it. **Send test** proves the route and prints the SMTP
+   transcript — saved settings and working delivery are different claims.
+2. **Configuration groups** — a team plus the events worth emailing it about.
+   The only events offered are the ones this server actually emits:
+   `approval.recorded` and `requirement.created`. A group with members cannot be
+   deleted until they are moved.
+3. **Users** — the notification registry: name, email, role
+   (`owner` / `approver` / `viewer`) and group. Each row states plainly whether
+   that person will really be emailed, and if not, why not.
+
+This is a registry, **not** a login — the panel still has no authentication.
+
+A notification failure never fails the action that triggered it. An approval
+that was recorded stays recorded whether or not the mail server answered; the
+response carries a `notified` block saying `sent`, `skipped` or `failed`, and
+the reason is printed on the server log.
+
+```bash
+AGENT_SETTINGS=/var/lib/agent-control/settings.json   # where configuration lives
+AGENT_PUBLIC_URL=https://agent-control.example.com     # link back, in the mail body
+```
+
+The mailer speaks SMTP over Node's own `net`/`tls` — direct TLS, STARTTLS or a
+plaintext local relay, with `AUTH PLAIN` / `AUTH LOGIN`. It is deliberately not
+a dependency: this project has none.
+
 ## Build the static demo yourself
 
 ```bash

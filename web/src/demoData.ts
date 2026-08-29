@@ -1710,6 +1710,62 @@ export const DEMO: Record<string, unknown> = {
     "log_path": "(static demo)",
     "jira_configured": false,
     "jira_project": null,
+    "mail_configured": true,
     "reader": "StaticDemoReader"
+  },
+  "/api/settings": {
+    "mail": {
+      "host": "smtp.example.com",
+      "port": 587,
+      "security": "starttls",
+      "username": "agent-control@example.com",
+      "password_set": true,
+      "from_name": "Agent Control",
+      "from_email": "agent-control@example.com",
+      "reply_to": null,
+      "updated_at": "2026-08-27T09:12:00.000Z"
+    },
+    "mail_configured": true,
+    "groups": [
+      {
+        "id": "grp_demo_platform",
+        "name": "Platform approvers",
+        "team": "Platform",
+        "description": "Anyone who can clear a merge gate for the platform services.",
+        "notify_events": ["approval.recorded"],
+        "created_at": "2026-08-20T10:00:00.000Z",
+        "updated_at": "2026-08-27T09:12:00.000Z"
+      },
+      {
+        "id": "grp_demo_intake",
+        "name": "Requirement intake",
+        "team": "Product",
+        "description": "Told when a new agent-eligible ticket is written.",
+        "notify_events": ["requirement.created"],
+        "created_at": "2026-08-22T11:30:00.000Z",
+        "updated_at": "2026-08-22T11:30:00.000Z"
+      }
+    ],
+    "users": [
+      {
+        "id": "usr_demo_1", "name": "Alex Fry", "email": "alex@example.com", "role": "approver",
+        "group_id": "grp_demo_platform", "notify": true,
+        "created_at": "2026-08-20T10:05:00.000Z", "updated_at": "2026-08-20T10:05:00.000Z"
+      },
+      {
+        "id": "usr_demo_2", "name": "Priya Raman", "email": "priya@example.com", "role": "owner",
+        "group_id": "grp_demo_platform", "notify": true,
+        "created_at": "2026-08-20T10:06:00.000Z", "updated_at": "2026-08-26T14:41:00.000Z"
+      },
+      {
+        "id": "usr_demo_3", "name": "Sam Okafor", "email": "sam@example.com", "role": "viewer",
+        "group_id": "grp_demo_intake", "notify": false,
+        "created_at": "2026-08-22T11:35:00.000Z", "updated_at": "2026-08-22T11:35:00.000Z"
+      }
+    ],
+    "security_options": ["tls", "starttls", "none"],
+    "roles": ["owner", "approver", "viewer"],
+    "events": ["approval.recorded", "requirement.created"],
+    "settings_path": "(static demo — nothing is stored)"
   }
 };

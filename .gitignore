@@ -1,3 +1,7 @@
 node_modules/
 *.log
 web/dist/
+
+# Runtime state: the approval trail and the settings file, which holds the SMTP password.
+.agent/
+web/tsconfig.tsbuildinfo

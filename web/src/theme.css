@@ -286,3 +286,29 @@ tbody tr:hover { background: var(--surface-sunk); }
   .main { padding: var(--s4); }
   .strip { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---------- configuration: section tabs and paired form rows ---------- */
+
+.tabs {
+  display: flex; gap: var(--s2); flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--s5);
+}
+.tabs button {
+  appearance: none; background: none; border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-2); font: inherit; font-size: var(--t-sm);
+  padding: var(--s2) var(--s3); cursor: pointer;
+  display: inline-flex; align-items: center; gap: var(--s2);
+}
+.tabs button:hover { color: var(--ink); }
+.tabs button.is-on { color: var(--ink); border-bottom-color: var(--accent, var(--ink)); }
+.tabs button:focus-visible { outline: 2px solid var(--accent, var(--ink)); outline-offset: 2px; }
+.tabs .pip {
+  background: var(--surface-sunk); border-radius: 999px;
+  padding: 0 var(--s2); font-size: var(--t-xs); font-variant-numeric: tabular-nums;
+}
+
+/* Two fields that belong together, stacking on a narrow screen. */
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s4); }
+@media (max-width: 640px) { .row-2 { grid-template-columns: 1fr; } }

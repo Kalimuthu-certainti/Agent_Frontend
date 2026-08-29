@@ -12,6 +12,16 @@
  *   POST /api/requirements              create or update a Jira requirement
  *   GET  /api/config                    what is wired and what is not
  *
+ *   GET    /api/settings                mail (redacted), groups, users, vocabulary
+ *   PUT    /api/settings/mail           save SMTP settings
+ *   POST   /api/settings/mail/test      send one test message, report the SMTP reply
+ *   POST   /api/settings/groups         create a configuration group
+ *   PUT    /api/settings/groups/:id     update one
+ *   DELETE /api/settings/groups/:id     delete one (refused while it still has members)
+ *   POST   /api/settings/users          add a user to the registry
+ *   PUT    /api/settings/users/:id      update one
+ *   DELETE /api/settings/users/:id      remove one
+ *
  * To move to Postgres: construct a PgRunLogReader on the line marked THE SEAM.
  * Nothing else here, and nothing in web/, changes.
  */
@@ -21,16 +31,22 @@ const fs = require('fs');
 const path = require('path');
 const { FileRunLogReader } = require('./reader');
 const { FileApprovalStore, ApprovalError } = require('./approvals');
+const { FileSettingsStore, SettingsError, SECURITY, ROLES, EVENTS } = require('./settings');
+const { sendMail, MailError } = require('./mailer');
+const { notify, logOutcome } = require('./notify');
 const { DEFAULT_LOG_PATH, GATE_ORDER } = require('./runLog');
 
 const PORT = Number(process.env.PORT || 4180);
 const LOG_PATH = process.env.AGENT_RUN_LOG || DEFAULT_LOG_PATH;
 const WEB_DIR = path.join(__dirname, '..', 'web', 'dist');
+/** Put in notification bodies so the mail can link back here. Absent is fine. */
+const PUBLIC_URL = process.env.AGENT_PUBLIC_URL || null;
 
 // ---- THE SEAM -------------------------------------------------------------
 const reader = new FileRunLogReader(LOG_PATH);
 // ---------------------------------------------------------------------------
 const approvals = new FileApprovalStore();
+const settings = new FileSettingsStore();
 
 /** Jira is optional. Absent config is reported, never faked. */
 const jira = {
@@ -152,6 +168,49 @@ async function createRequirement(payload) {
   return json;
 }
 
+/**
+ * Send one test message using the settings as saved. The stored password is
+ * used rather than asked for again — the UI never receives it, so it could not
+ * send it back even if we wanted it to.
+ */
+async function sendTestMail(payload) {
+  const to = String(payload.to || '').trim();
+  if (!to) throw new SettingsError('a test needs a recipient address');
+  if (!settings.configured()) {
+    throw new SettingsError('mail is not configured on this server', 'NOT_CONFIGURED');
+  }
+  const cfg = settings.mail();
+  const started = Date.now();
+  const res = await sendMail(cfg, {
+    to,
+    subject: 'Agent Control — test message',
+    text: [
+      'This is a test from the Agent Control configuration screen.',
+      '',
+      `Host:  ${cfg.host}:${cfg.port} (${cfg.security})`,
+      `From:  ${cfg.from_email}`,
+      `Auth:  ${cfg.username ? cfg.username : 'none'}`,
+      `Sent:  ${new Date().toISOString()}`,
+      '',
+      'If you are reading this, notifications will reach this address.',
+    ].join('\n'),
+  });
+  return {
+    sent: true,
+    to: res.accepted,
+    message_id: res.message_id,
+    server_reply: res.server_reply,
+    ms: Date.now() - started,
+    transcript: res.transcript,
+  };
+}
+
+/** /api/settings/groups/grp_x -> ['groups', 'grp_x']; null for any other path. */
+function settingsRoute(pathname) {
+  if (pathname !== '/api/settings' && !pathname.startsWith('/api/settings/')) return null;
+  return pathname.slice('/api/settings'.length).split('/').filter(Boolean);
+}
+
 function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const filePath = path.resolve(WEB_DIR, rel);
@@ -217,7 +276,22 @@ const server = http.createServer(async (req, res) => {
           log_path: LOG_PATH,
           jira_configured: jiraConfigured(),
           jira_project: jiraConfigured() ? jira.project : null,
+          mail_configured: settings.configured(),
           reader: reader.constructor.name,
+        });
+      }
+      if (pathname === '/api/settings') {
+        return sendJson(res, 200, {
+          mail: settings.redactedMail(),
+          mail_configured: settings.configured(),
+          groups: settings.groups(),
+          users: settings.users(),
+          // The vocabulary comes from the server so the UI cannot offer a role,
+          // a security mode or an event that this build does not honour.
+          security_options: SECURITY,
+          roles: ROLES,
+          events: EVENTS,
+          settings_path: settings.filePath,
         });
       }
       if (pathname.startsWith('/api/')) {
@@ -230,17 +304,93 @@ const server = http.createServer(async (req, res) => {
       const payload = await readBody(req);
       if (pathname === '/api/approvals') {
         const { record, created } = approvals.decide({ ...payload, channel: 'ui' });
-        return sendJson(res, created ? 201 : 200, { record, created });
+        // Notify only on a real state change, and never let mail trouble turn a
+        // recorded decision into a failed request — see notify().
+        const notified = created
+          ? await notify(settings, 'approval.recorded', { record, base_url: PUBLIC_URL })
+          : null;
+        logOutcome(notified);
+        return sendJson(res, created ? 201 : 200, { record, created, notified });
       }
       if (pathname === '/api/requirements') {
         const issue = await createRequirement(payload);
-        return sendJson(res, 201, { issue });
+        const notified = await notify(settings, 'requirement.created', {
+          issue,
+          summary: String(payload.summary || '').trim(),
+          actor: String(payload.actor || '').trim() || null,
+          base_url: PUBLIC_URL,
+        });
+        logOutcome(notified);
+        return sendJson(res, 201, { issue, notified });
+      }
+      const post = settingsRoute(pathname);
+      if (post) {
+        if (post[0] === 'mail' && post[1] === 'test' && post.length === 2) {
+          return sendJson(res, 200, await sendTestMail(payload));
+        }
+        if (post[0] === 'groups' && post.length === 1) {
+          return sendJson(res, 201, { group: settings.createGroup(payload) });
+        }
+        if (post[0] === 'users' && post.length === 1) {
+          return sendJson(res, 201, { user: settings.createUser(payload) });
+        }
+      }
+      return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
+    }
+
+    if (req.method === 'PUT') {
+      const payload = await readBody(req);
+      const put = settingsRoute(pathname);
+      if (put) {
+        if (put[0] === 'mail' && put.length === 1) {
+          return sendJson(res, 200, {
+            mail: settings.saveMail(payload),
+            mail_configured: settings.configured(),
+          });
+        }
+        if (put[0] === 'groups' && put.length === 2) {
+          return sendJson(res, 200, { group: settings.updateGroup(put[1], payload) });
+        }
+        if (put[0] === 'users' && put.length === 2) {
+          return sendJson(res, 200, { user: settings.updateUser(put[1], payload) });
+        }
+      }
+      return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
+    }
+
+    if (req.method === 'DELETE') {
+      const del = settingsRoute(pathname);
+      if (del) {
+        if (del[0] === 'groups' && del.length === 2) {
+          return sendJson(res, 200, { deleted: settings.deleteGroup(del[1]) });
+        }
+        if (del[0] === 'users' && del.length === 2) {
+          return sendJson(res, 200, { deleted: settings.deleteUser(del[1]) });
+        }
       }
       return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
     }
 
     return sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} is not supported here` });
   } catch (err) {
+    if (err instanceof SettingsError) {
+      const status = err.code === 'NOT_FOUND' ? 404
+        : err.code === 'DUPLICATE' || err.code === 'GROUP_NOT_EMPTY' ? 409
+        : err.code === 'NOT_CONFIGURED' ? 501
+        : err.code === 'CORRUPT' ? 500 : 400;
+      return sendJson(res, status, {
+        error: err.code, message: err.message,
+        ...(err.members ? { members: err.members } : {}),
+      });
+    }
+    if (err instanceof MailError) {
+      // 502: this server is fine, the mail server refused or was unreachable.
+      const status = err.code === 'NOT_CONFIGURED' ? 501 : 502;
+      return sendJson(res, status, {
+        error: err.code, message: err.message,
+        ...(err.transcript ? { transcript: err.transcript } : {}),
+      });
+    }
     if (err instanceof ApprovalError) {
       const status = err.code === 'CONFLICT' ? 409
         : err.code === 'NOT_CONFIGURED' ? 501
@@ -261,8 +411,10 @@ if (require.main === module) {
     process.stdout.write(`agent-control-panel  http://localhost:${PORT}\n`);
     process.stdout.write(`run log              ${LOG_PATH}${fs.existsSync(LOG_PATH) ? '' : '  (not created yet)'}\n`);
     process.stdout.write(`jira                 ${jiraConfigured() ? `configured (${jira.project})` : 'not configured — the requirement editor will say so'}\n`);
+    const mail = settings.configured() ? settings.mail() : null;
+    process.stdout.write(`mail                 ${mail ? `${mail.host}:${mail.port} (${mail.security}) as ${mail.from_email}` : 'not configured — set it on the Configuration screen'}\n`);
     if (!fs.existsSync(WEB_DIR)) process.stdout.write(`web app              not built — run: npm run build\n`);
   });
 }
 
-module.exports = { server, reader, approvals, approvalQueue };
+module.exports = { server, reader, approvals, settings, approvalQueue };

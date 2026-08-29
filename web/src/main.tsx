@@ -9,8 +9,9 @@ import { TicketView } from './TicketView';
 import { Usage } from './Usage';
 import { Approvals } from './Approvals';
 import { RequirementEditor } from './RequirementEditor';
+import { Configuration } from './Configuration';
 
-type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'requirement';
+type SurfaceId = 'deck' | 'ticket' | 'usage' | 'approvals' | 'requirement' | 'config';
 
 const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] = [
   { id: 'deck', label: 'Command deck', title: 'Command deck',
@@ -23,6 +24,8 @@ const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] 
     lede: 'Everything waiting on a human decision, with enough context to decide without leaving this screen.' },
   { id: 'requirement', label: 'Requirement', title: 'Requirement editor',
     lede: 'Write a requirement straight into Jira, labelled for agent intake.' },
+  { id: 'config', label: 'Configuration', title: 'Configuration',
+    lede: 'How notifications leave this server, which teams they reach, and who is on the list.' },
 ];
 
 function useTheme() {
@@ -99,6 +102,7 @@ function App() {
         {surface === 'usage' && <Usage />}
         {surface === 'approvals' && <Approvals />}
         {surface === 'requirement' && <RequirementEditor />}
+        {surface === 'config' && <Configuration />}
       </main>
     </div>
   );

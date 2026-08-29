@@ -83,4 +83,48 @@ export interface ApprovalItem {
   decision: ApprovalRecord | null;
 }
 export interface ApprovalsPayload { items: ApprovalItem[]; decided: ApprovalRecord[]; gate_order: string[] }
-export interface Config { log_path: string; jira_configured: boolean; jira_project: string | null; reader: string }
+export interface Config {
+  log_path: string; jira_configured: boolean; jira_project: string | null;
+  mail_configured: boolean; reader: string;
+}
+
+/* ---------- configuration ----------
+ * The SMTP password is never sent to the browser. `password_set` is all the UI
+ * is told about it, and all it needs to render honestly. */
+
+export type MailSecurity = 'tls' | 'starttls' | 'none';
+export type Role = 'owner' | 'approver' | 'viewer';
+export type NotifyEvent = 'approval.recorded' | 'requirement.created';
+
+export interface MailConfig {
+  host: string; port: number; security: MailSecurity;
+  username: string | null; password_set: boolean;
+  from_name: string | null; from_email: string; reply_to: string | null;
+  updated_at: string;
+}
+
+export interface ConfigGroup {
+  id: string; name: string; team: string; description: string | null;
+  notify_events: NotifyEvent[]; created_at: string; updated_at: string;
+}
+
+export interface RegistryUser {
+  id: string; name: string; email: string; role: Role;
+  group_id: string | null; notify: boolean; created_at: string; updated_at: string;
+}
+
+export interface SettingsPayload {
+  mail: MailConfig | null;
+  mail_configured: boolean;
+  groups: ConfigGroup[];
+  users: RegistryUser[];
+  security_options: MailSecurity[];
+  roles: Role[];
+  events: NotifyEvent[];
+  settings_path: string;
+}
+
+export interface MailTestResult {
+  sent: boolean; to: string[]; message_id: string; server_reply: string;
+  ms: number; transcript: string[];
+}
