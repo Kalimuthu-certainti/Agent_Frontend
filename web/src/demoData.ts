@@ -1732,6 +1732,7 @@ export const DEMO: Record<string, unknown> = {
         "name": "Platform approvers",
         "team": "Platform",
         "description": "Anyone who can clear a merge gate for the platform services.",
+        "roles": ["owner", "approver"],
         "notify_events": ["approval.recorded"],
         "created_at": "2026-08-20T10:00:00.000Z",
         "updated_at": "2026-08-27T09:12:00.000Z"
@@ -1741,6 +1742,7 @@ export const DEMO: Record<string, unknown> = {
         "name": "Requirement intake",
         "team": "Product",
         "description": "Told when a new agent-eligible ticket is written.",
+        "roles": ["viewer"],
         "notify_events": ["requirement.created"],
         "created_at": "2026-08-22T11:30:00.000Z",
         "updated_at": "2026-08-22T11:30:00.000Z"
@@ -1749,17 +1751,17 @@ export const DEMO: Record<string, unknown> = {
     "users": [
       {
         "id": "usr_demo_1", "name": "Alex Fry", "email": "alex@example.com", "role": "approver",
-        "group_id": "grp_demo_platform", "notify": true,
+        "notify": true,
         "created_at": "2026-08-20T10:05:00.000Z", "updated_at": "2026-08-20T10:05:00.000Z"
       },
       {
         "id": "usr_demo_2", "name": "Priya Raman", "email": "priya@example.com", "role": "owner",
-        "group_id": "grp_demo_platform", "notify": true,
+        "notify": true,
         "created_at": "2026-08-20T10:06:00.000Z", "updated_at": "2026-08-26T14:41:00.000Z"
       },
       {
         "id": "usr_demo_3", "name": "Sam Okafor", "email": "sam@example.com", "role": "viewer",
-        "group_id": "grp_demo_intake", "notify": false,
+        "notify": false,
         "created_at": "2026-08-22T11:35:00.000Z", "updated_at": "2026-08-22T11:35:00.000Z"
       }
     ],

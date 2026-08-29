@@ -40,10 +40,12 @@ const EVENT_LABEL: Record<string, string> = {
   'requirement.created': 'Requirement created — a new ticket was written into Jira',
 };
 
-const ROLE_HINT: Record<string, string> = {
-  owner: 'owns the configuration',
-  approver: 'decides on gates',
-  viewer: 'reads the panel',
+/** What a role lets someone do here. Shown beside every member, because a role
+ *  name alone does not tell you what that person is actually performing. */
+const ROLE_PERMITS: Record<string, string> = {
+  owner: 'owns the configuration — mail, groups and the registry',
+  approver: 'decides on gates — approves or bounces, and is mailed when a decision is recorded',
+  viewer: 'reads the panel — sees every screen, changes nothing',
 };
 
 /** Every write on this screen shares the same busy / error / confirmation shape. */
@@ -236,20 +238,100 @@ function MailSection({ data, reload }: { data: SettingsPayload; reload: () => vo
 
 /* ---------------------------------------------------------------- groups -- */
 
-const BLANK_GROUP = { name: '', team: '', description: '', notify_events: [] as NotifyEvent[] };
+const BLANK_GROUP = {
+  name: '', team: '', description: '', roles: [] as Role[], notify_events: [] as NotifyEvent[],
+};
+
+/** Everyone holding a role the group claims. The rule, in one line. */
+const membersOf = (group: ConfigGroup, users: RegistryUser[]) =>
+  users.filter(u => group.roles.includes(u.role));
+
+const groupsOf = (user: RegistryUser, groups: ConfigGroup[]) =>
+  groups.filter(g => g.roles.includes(user.role));
+
+/** The members of one group: who they are and what their role lets them do. */
+function GroupDetail({ group, users, onBack }: {
+  group: ConfigGroup; users: RegistryUser[]; onBack: () => void;
+}) {
+  const members = membersOf(group, users);
+
+  return (
+    <Panel title={group.name}
+      aside={<button className="btn" onClick={onBack}>← All groups</button>}>
+      {/* .tile-meta is designed to close a tile, so its top rule and spacing are
+          dropped here where it opens a panel instead. */}
+      <dl className="tile-meta"
+        style={{ marginTop: 0, paddingTop: 0, borderTop: 0, marginBottom: 'var(--s4)' }}>
+        <dt>Team</dt><dd>{group.team}</dd>
+        <dt>Claims roles</dt>
+        <dd>{group.roles.length === 0
+          ? <Absent>none — so this group has no members</Absent>
+          : group.roles.map(r => <span key={r} className="chip" style={{ marginRight: 'var(--s1)' }}>{r}</span>)}
+        </dd>
+        <dt>Notifies on</dt>
+        <dd>{group.notify_events.length === 0
+          ? <Absent>nothing</Absent>
+          : group.notify_events.map(ev => (
+            <span key={ev} className="chip" style={{ marginRight: 'var(--s1)' }}>
+              <code className="mono">{ev}</code>
+            </span>))}
+        </dd>
+      </dl>
+      {group.description && <p className="lede" style={{ marginTop: 0 }}>{group.description}</p>}
+
+      {members.length === 0 ? (
+        <EmptyState title="No members">
+          <p>{group.roles.length === 0
+            ? 'This group claims no role, so nobody can be in it. Edit it and claim one.'
+            : `Nobody in the registry holds ${group.roles.join(' or ')}. Add someone with that ` +
+              'role and they join this group immediately — membership follows the role.'}</p>
+        </EmptyState>
+      ) : (
+        <div className="scroll-x">
+          <table>
+            <thead>
+              <tr><th>Member</th><th>Email</th><th>Role</th><th>What that role does</th><th>Mail</th></tr>
+            </thead>
+            <tbody>
+              {members.map(u => (
+                <tr key={u.id}>
+                  <td><strong>{u.name}</strong></td>
+                  <td className="mono">{u.email}</td>
+                  <td>{u.role}</td>
+                  <td>{ROLE_PERMITS[u.role]}</td>
+                  <td>{u.notify
+                    ? <span className="chip healthy">receives</span>
+                    : <span className="chip dashed">muted</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="hint" style={{ marginTop: 'var(--s3)' }}>
+        {members.length === 1 ? '1 member' : `${members.length} members`}, derived from the roles this
+        group claims. Nobody is filed in by hand, so this list cannot drift from the registry.
+      </p>
+    </Panel>
+  );
+}
 
 function GroupSection({ data, reload }: { data: SettingsPayload; reload: () => void }) {
+  const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState(BLANK_GROUP);
   const write = useWrite(reload);
 
-  const memberCount = (id: string) => data.users.filter(u => u.group_id === id).length;
+  const opened = data.groups.find(g => g.id === open) ?? null;
+  if (opened) {
+    return <GroupDetail group={opened} users={data.users} onBack={() => setOpen(null)} />;
+  }
 
   function edit(g: ConfigGroup) {
     setEditing(g.id);
     setDraft({
       name: g.name, team: g.team, description: g.description ?? '',
-      notify_events: [...g.notify_events],
+      roles: [...g.roles], notify_events: [...g.notify_events],
     });
     write.clear();
   }
@@ -259,8 +341,8 @@ function GroupSection({ data, reload }: { data: SettingsPayload; reload: () => v
   async function submit(e: FormEvent) {
     e.preventDefault();
     const body = {
-      name: draft.name.trim(), team: draft.team.trim(),
-      description: draft.description.trim(), notify_events: draft.notify_events,
+      name: draft.name.trim(), team: draft.team.trim(), description: draft.description.trim(),
+      roles: draft.roles, notify_events: draft.notify_events,
     };
     const done = editing
       ? await write.run(() => putJson(`/api/settings/groups/${editing}`, body), () => `Updated ${body.name}.`)
@@ -269,58 +351,71 @@ function GroupSection({ data, reload }: { data: SettingsPayload; reload: () => v
   }
 
   async function remove(g: ConfigGroup) {
-    await write.run(() => deleteJson(`/api/settings/groups/${g.id}`), () => `Deleted ${g.name}.`);
+    const n = membersOf(g, data.users).length;
+    await write.run(() => deleteJson(`/api/settings/groups/${g.id}`),
+      () => `Deleted ${g.name}. Its ${n} member${n === 1 ? '' : 's'} stay in the registry — only the ` +
+        'subscription is gone.');
   }
 
-  const toggleEvent = (ev: NotifyEvent) => setDraft(d => ({
-    ...d,
-    notify_events: d.notify_events.includes(ev)
-      ? d.notify_events.filter(x => x !== ev)
-      : [...d.notify_events, ev],
-  }));
+  const toggle = <T,>(list: T[], v: T) => list.includes(v) ? list.filter(x => x !== v) : [...list, v];
 
   return (
     <>
       <Panel title="Groups" aside={<span className="hint">{data.groups.length} configured</span>}>
         {data.groups.length === 0 ? (
           <EmptyState title="No configuration groups yet">
-            <p>A group ties a team to the events worth emailing them about. Until one exists and has
-              members, nothing is notified — the panel still records every decision either way.</p>
+            <p>A group ties a team to the events worth emailing them about, and claims the roles whose
+              holders belong to it. Until one exists, nothing is notified — the panel still records
+              every decision either way.</p>
           </EmptyState>
         ) : (
           <div className="scroll-x">
             <table>
               <thead>
                 <tr>
-                  <th>Group</th><th>Team</th><th>Notifies on</th>
+                  <th>Group</th><th>Team</th><th>Claims roles</th><th>Notifies on</th>
                   <th className="num">Members</th><th></th>
                 </tr>
               </thead>
               <tbody>
-                {data.groups.map(g => (
-                  <tr key={g.id}>
-                    <td>
-                      <strong>{g.name}</strong>
-                      {g.description && <div className="hint">{g.description}</div>}
-                    </td>
-                    <td>{g.team}</td>
-                    <td>
-                      {g.notify_events.length === 0
-                        ? <Absent>nothing — this group is not notified</Absent>
-                        : g.notify_events.map(ev => (
-                          <span key={ev} className="chip" style={{ marginRight: 'var(--s1)' }}>
-                            <code className="mono">{ev}</code>
-                          </span>
-                        ))}
-                    </td>
-                    <td className="num mono">{memberCount(g.id)}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button className="btn" onClick={() => edit(g)} disabled={STATIC_DEMO}>Edit</button>{' '}
-                      <button className="btn btn-danger" onClick={() => remove(g)}
-                        disabled={write.busy || STATIC_DEMO}>Delete</button>
-                    </td>
-                  </tr>
-                ))}
+                {data.groups.map(g => {
+                  const n = membersOf(g, data.users).length;
+                  return (
+                    <tr key={g.id}>
+                      <td>
+                        <button className="linkish" onClick={() => setOpen(g.id)}
+                          aria-label={`Open ${g.name} and see its members`}>
+                          <strong>{g.name}</strong>
+                        </button>
+                        {g.description && <div className="hint">{g.description}</div>}
+                      </td>
+                      <td>{g.team}</td>
+                      <td>
+                        {g.roles.length === 0
+                          ? <Absent>none</Absent>
+                          : g.roles.map(r => (
+                            <span key={r} className="chip" style={{ marginRight: 'var(--s1)' }}>{r}</span>))}
+                      </td>
+                      <td>
+                        {g.notify_events.length === 0
+                          ? <Absent>nothing</Absent>
+                          : g.notify_events.map(ev => (
+                            <span key={ev} className="chip" style={{ marginRight: 'var(--s1)' }}>
+                              <code className="mono">{ev}</code>
+                            </span>))}
+                      </td>
+                      <td className="num mono">
+                        <button className="linkish" onClick={() => setOpen(g.id)}>{n}</button>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="btn" onClick={() => setOpen(g.id)}>Members</button>{' '}
+                        <button className="btn" onClick={() => edit(g)} disabled={STATIC_DEMO}>Edit</button>{' '}
+                        <button className="btn btn-danger" onClick={() => remove(g)}
+                          disabled={write.busy || STATIC_DEMO}>Delete</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -350,12 +445,35 @@ function GroupSection({ data, reload }: { data: SettingsPayload; reload: () => v
           </div>
 
           <fieldset className="field" style={{ border: 0, padding: 0, margin: '0 0 var(--s4)' }}>
+            <legend style={{ padding: 0 }}>Members: everyone holding these roles</legend>
+            {data.roles.map(r => {
+              const n = data.users.filter(u => u.role === r).length;
+              return (
+                <label key={r} style={{ display: 'flex', gap: 'var(--s2)', alignItems: 'flex-start',
+                  marginBottom: 'var(--s2)' }}>
+                  <input type="checkbox" style={{ width: 'auto', minHeight: 0, marginTop: 3 }}
+                    checked={draft.roles.includes(r)}
+                    onChange={() => setDraft({ ...draft, roles: toggle(draft.roles, r) })} />
+                  <span>
+                    <strong>{r}</strong> — {ROLE_PERMITS[r]}
+                    <span className="hint"> {n} in the registry today</span>
+                  </span>
+                </label>
+              );
+            })}
+            <p className="hint">Membership follows the role: claim one and everyone holding it joins,
+              now and in future. Several groups may claim the same role, and a person can be in all
+              of them.</p>
+          </fieldset>
+
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: '0 0 var(--s4)' }}>
             <legend style={{ padding: 0 }}>Notify on</legend>
             {data.events.map(ev => (
               <label key={ev} style={{ display: 'flex', gap: 'var(--s2)', alignItems: 'flex-start',
                 marginBottom: 'var(--s2)' }}>
                 <input type="checkbox" style={{ width: 'auto', minHeight: 0, marginTop: 3 }}
-                  checked={draft.notify_events.includes(ev)} onChange={() => toggleEvent(ev)} />
+                  checked={draft.notify_events.includes(ev)}
+                  onChange={() => setDraft({ ...draft, notify_events: toggle(draft.notify_events, ev) })} />
                 <span>{EVENT_LABEL[ev] ?? ev}</span>
               </label>
             ))}
@@ -378,19 +496,16 @@ function GroupSection({ data, reload }: { data: SettingsPayload; reload: () => v
 
 /* ----------------------------------------------------------------- users -- */
 
-const BLANK_USER = { name: '', email: '', role: 'viewer' as Role, group_id: '', notify: true };
+const BLANK_USER = { name: '', email: '', role: 'viewer' as Role, notify: true };
 
 function UserSection({ data, reload }: { data: SettingsPayload; reload: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState(BLANK_USER);
   const write = useWrite(reload);
 
-  const groupName = (id: string | null) =>
-    data.groups.find(g => g.id === id)?.name ?? null;
-
   function edit(u: RegistryUser) {
     setEditing(u.id);
-    setDraft({ name: u.name, email: u.email, role: u.role, group_id: u.group_id ?? '', notify: u.notify });
+    setDraft({ name: u.name, email: u.email, role: u.role, notify: u.notify });
     write.clear();
   }
 
@@ -399,8 +514,7 @@ function UserSection({ data, reload }: { data: SettingsPayload; reload: () => vo
   async function submit(e: FormEvent) {
     e.preventDefault();
     const body = {
-      name: draft.name.trim(), email: draft.email.trim(), role: draft.role,
-      group_id: draft.group_id || null, notify: draft.notify,
+      name: draft.name.trim(), email: draft.email.trim(), role: draft.role, notify: draft.notify,
     };
     const done = editing
       ? await write.run(() => putJson(`/api/settings/users/${editing}`, body), () => `Updated ${body.email}.`)
@@ -415,36 +529,55 @@ function UserSection({ data, reload }: { data: SettingsPayload; reload: () => vo
   /** Says plainly whether this person will actually be emailed, and why not. */
   function reach(u: RegistryUser) {
     if (!u.notify) return <span className="chip dashed">muted by choice</span>;
-    if (!u.group_id) return <span className="chip dashed">no group — not notified</span>;
-    const group = data.groups.find(g => g.id === u.group_id);
-    if (!group || group.notify_events.length === 0) {
-      return <span className="chip dashed">group notifies on nothing</span>;
+    const mine = groupsOf(u, data.groups);
+    if (mine.length === 0) {
+      return <span className="chip dashed">no group claims {u.role}</span>;
+    }
+    if (!mine.some(g => g.notify_events.length > 0)) {
+      return <span className="chip dashed">groups notify on nothing</span>;
     }
     if (!data.mail_configured) return <span className="chip warning">mail not configured</span>;
     return <span className="chip healthy">will be emailed</span>;
   }
+
+  /** Where the role puts them. This is the only place group membership appears. */
+  function groupCell(u: RegistryUser) {
+    const mine = groupsOf(u, data.groups);
+    if (mine.length === 0) return <Absent>none — no group claims {u.role}</Absent>;
+    return mine.map(g => (
+      <span key={g.id} className="chip" style={{ marginRight: 'var(--s1)' }}>{g.name}</span>
+    ));
+  }
+
+  // What choosing this role in the form will do, said before the user commits.
+  const wouldJoin = data.groups.filter(g => g.roles.includes(draft.role));
 
   return (
     <>
       <Panel title="Registry" aside={<span className="hint">{data.users.length} people</span>}>
         {data.users.length === 0 ? (
           <EmptyState title="Nobody in the registry yet">
-            <p>Add the people who should hear about approvals. This is a notification registry and a
-              record of who is who — it is not a login: the panel has no sign-in.</p>
+            <p>Add the people who should hear about approvals. Their role decides which groups they
+              land in — there is nothing to file by hand. This is a notification registry, not a
+              login: the panel has no sign-in.</p>
           </EmptyState>
         ) : (
           <div className="scroll-x">
             <table>
               <thead>
-                <tr><th>Name</th><th>Email</th><th>Role</th><th>Group</th><th>Reach</th><th></th></tr>
+                <tr>
+                  <th>Name</th><th>Email</th><th>Role</th><th>What that role does</th>
+                  <th>Groups (from role)</th><th>Reach</th><th></th>
+                </tr>
               </thead>
               <tbody>
                 {data.users.map(u => (
                   <tr key={u.id}>
                     <td><strong>{u.name}</strong></td>
                     <td className="mono">{u.email}</td>
-                    <td>{u.role}<div className="hint">{ROLE_HINT[u.role]}</div></td>
-                    <td>{groupName(u.group_id) ?? <Absent>none</Absent>}</td>
+                    <td>{u.role}</td>
+                    <td>{ROLE_PERMITS[u.role]}</td>
+                    <td>{groupCell(u)}</td>
                     <td>{reach(u)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn" onClick={() => edit(u)} disabled={STATIC_DEMO}>Edit</button>{' '}
@@ -474,33 +607,27 @@ function UserSection({ data, reload }: { data: SettingsPayload; reload: () => vo
             </div>
           </div>
 
-          <div className="row-2">
-            <div className="field">
-              <label htmlFor="u-role">Role</label>
-              <select id="u-role" value={draft.role}
-                onChange={e => setDraft({ ...draft, role: e.target.value as Role })}>
-                {data.roles.map(r => <option key={r} value={r}>{r} — {ROLE_HINT[r]}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="u-group">Group</label>
-              <select id="u-group" value={draft.group_id}
-                onChange={e => setDraft({ ...draft, group_id: e.target.value })}>
-                <option value="">No group — receives nothing</option>
-                {data.groups.map(g => <option key={g.id} value={g.id}>{g.name} ({g.team})</option>)}
-              </select>
-              {data.groups.length === 0 && (
-                <p className="hint">There are no groups yet. A user without one is still recorded,
-                  but will not be emailed.</p>
-              )}
-            </div>
+          <div className="field">
+            <label htmlFor="u-role">Role</label>
+            <select id="u-role" value={draft.role}
+              onChange={e => setDraft({ ...draft, role: e.target.value as Role })}>
+              {data.roles.map(r => <option key={r} value={r}>{r} — {ROLE_PERMITS[r]}</option>)}
+            </select>
+            {/* There is no group field: the role is the group. Say where they land
+                before the form is submitted, so nothing happens invisibly. */}
+            <p className="hint">
+              {wouldJoin.length === 0
+                ? `No group claims ${draft.role} yet, so this person will be recorded but not emailed. ` +
+                  'Claim the role on a group to change that.'
+                : `Joins ${wouldJoin.map(g => g.name).join(', ')} — every group that claims ${draft.role}.`}
+            </p>
           </div>
 
           <div className="field">
             <label style={{ display: 'flex', gap: 'var(--s2)', alignItems: 'center', marginBottom: 0 }}>
               <input type="checkbox" style={{ width: 'auto', minHeight: 0 }} checked={draft.notify}
                 onChange={e => setDraft({ ...draft, notify: e.target.checked })} />
-              <span>Send this person the group's notifications</span>
+              <span>Send this person their groups' notifications</span>
             </label>
           </div>
 

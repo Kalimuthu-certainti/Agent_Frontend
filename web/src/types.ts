@@ -103,14 +103,16 @@ export interface MailConfig {
   updated_at: string;
 }
 
+/** `roles` is the whole membership rule: everyone holding a claimed role is a
+ *  member, so a person can belong to several groups and none is stored. */
 export interface ConfigGroup {
   id: string; name: string; team: string; description: string | null;
-  notify_events: NotifyEvent[]; created_at: string; updated_at: string;
+  roles: Role[]; notify_events: NotifyEvent[]; created_at: string; updated_at: string;
 }
 
 export interface RegistryUser {
   id: string; name: string; email: string; role: Role;
-  group_id: string | null; notify: boolean; created_at: string; updated_at: string;
+  notify: boolean; created_at: string; updated_at: string;
 }
 
 export interface SettingsPayload {
