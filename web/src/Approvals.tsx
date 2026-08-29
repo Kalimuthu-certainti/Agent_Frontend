@@ -135,7 +135,7 @@ export function Approvals() {
       <Panel title="Who is deciding">
         <div className="field" style={{ maxWidth: 360, marginBottom: 0 }}>
           <label htmlFor="actor">Your name — recorded on every decision</label>
-          <input id="actor" value={actor} placeholder="e.g. alex"
+          <input id="actor" value={actor} placeholder="e.g. kalimuthu"
             onChange={e => { setActor(e.target.value); localStorage.setItem('acp.actor', e.target.value); }} />
           <p className="hint">An approval with no name is not an audit record, so the buttons stay disabled
             until this is set. It is stored in this browser only.</p>

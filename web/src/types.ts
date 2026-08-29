@@ -83,4 +83,24 @@ export interface ApprovalItem {
   decision: ApprovalRecord | null;
 }
 export interface ApprovalsPayload { items: ApprovalItem[]; decided: ApprovalRecord[]; gate_order: string[] }
-export interface Config { log_path: string; jira_configured: boolean; jira_project: string | null; reader: string }
+export interface Config { log_path: string; jira_configured: boolean; jira_project: string | null; reader: string; team_store?: string }
+
+/* ---- team & mail routing ---- */
+export interface Person {
+  id: string; name: string; email: string; active: boolean;
+  jira_account: string | null; github_handle: string | null;
+}
+export type ApprovalMode = 'active-review' | 'standing-delegation';
+export interface EscalationRung { person_id: string; timeout_hours: number }
+export interface Group {
+  id: string; name: string; type: string; owns_gate: string | null;
+  group_email: string | null; members: string[];
+  approval_mode: ApprovalMode; escalation_order: EscalationRung[];
+  active_members?: number;
+}
+export interface TeamState {
+  people: Person[]; groups: Group[];
+  coverage: Record<string, string | null>;
+  routable_gates: string[]; group_types: string[]; approval_modes: ApprovalMode[];
+  unassigned_gates: string[]; starved_gates: string[];
+}

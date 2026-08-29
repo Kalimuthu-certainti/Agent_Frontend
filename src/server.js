@@ -10,6 +10,11 @@
  *   GET  /api/approvals                 pending queue + decided records
  *   POST /api/approvals                 approve / bounce  (idempotent by request_id)
  *   POST /api/requirements              create or update a Jira requirement
+ *   GET  /api/team                      people, groups, gate coverage
+ *   POST /api/team/person               add a person
+ *   PATCH/api/team/person/:id           edit / deactivate a person
+ *   POST /api/team/group                add a group
+ *   PATCH/api/team/group/:id            edit a group (members, gate, mode, DL, escalation)
  *   GET  /api/config                    what is wired and what is not
  *
  * To move to Postgres: construct a PgRunLogReader on the line marked THE SEAM.
@@ -21,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const { FileRunLogReader } = require('./reader');
 const { FileApprovalStore, ApprovalError } = require('./approvals');
+const { FileTeamStore, TeamError } = require('./team');
 const { DEFAULT_LOG_PATH, GATE_ORDER } = require('./runLog');
 
 const PORT = Number(process.env.PORT || 4180);
@@ -29,6 +35,7 @@ const WEB_DIR = path.join(__dirname, '..', 'web', 'dist');
 
 // ---- THE SEAM -------------------------------------------------------------
 const reader = new FileRunLogReader(LOG_PATH);
+const team = new FileTeamStore();
 // ---------------------------------------------------------------------------
 const approvals = new FileApprovalStore();
 
@@ -212,12 +219,14 @@ const server = http.createServer(async (req, res) => {
         });
       }
       if (pathname === '/api/approvals') return sendJson(res, 200, approvalQueue());
+      if (pathname === '/api/team') return sendJson(res, 200, team.state());
       if (pathname === '/api/config') {
         return sendJson(res, 200, {
           log_path: LOG_PATH,
           jira_configured: jiraConfigured(),
           jira_project: jiraConfigured() ? jira.project : null,
           reader: reader.constructor.name,
+          team_store: team.constructor.name,
         });
       }
       if (pathname.startsWith('/api/')) {
@@ -236,11 +245,34 @@ const server = http.createServer(async (req, res) => {
         const issue = await createRequirement(payload);
         return sendJson(res, 201, { issue });
       }
+      if (pathname === '/api/team/person') return sendJson(res, 201, { person: team.addPerson(payload) });
+      if (pathname === '/api/team/group') return sendJson(res, 201, { group: team.addGroup(payload) });
+      return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
+    }
+
+    if (req.method === 'PATCH') {
+      const payload = await readBody(req);
+      let m;
+      if ((m = pathname.match(/^\/api\/team\/person\/([^/]+)$/))) {
+        return sendJson(res, 200, { person: team.updatePerson(decodeURIComponent(m[1]), payload) });
+      }
+      if ((m = pathname.match(/^\/api\/team\/group\/([^/]+)$/))) {
+        return sendJson(res, 200, { group: team.updateGroup(decodeURIComponent(m[1]), payload) });
+      }
       return sendJson(res, 404, { error: 'not_found', message: `no endpoint ${pathname}` });
     }
 
     return sendJson(res, 405, { error: 'method_not_allowed', message: `${req.method} is not supported here` });
   } catch (err) {
+    if (err instanceof TeamError) {
+      const status = err.code === 'NOT_FOUND' ? 404
+        : (err.code === 'DUPLICATE' || err.code === 'GATE_TAKEN') ? 409
+        : err.code === 'CORRUPT' ? 500 : 400;
+      return sendJson(res, status, {
+        error: err.code, message: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      });
+    }
     if (err instanceof ApprovalError) {
       const status = err.code === 'CONFLICT' ? 409
         : err.code === 'NOT_CONFIGURED' ? 501
@@ -265,4 +297,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { server, reader, approvals, approvalQueue };
+module.exports = { server, reader, approvals, team, approvalQueue };

@@ -77,7 +77,7 @@ appendStep({
   agent_name: 'A',
   claude_session_id: 'sess_01ab',
   model: 'claude-opus-5',
-  ticket_key: 'APP-142',
+  ticket_key: 'TRDV2-570',
   phase: 'build',
   step: 'implement calculator fix',
   tokens_in: 18400, tokens_out: 2100,
