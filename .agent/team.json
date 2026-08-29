@@ -1,0 +1,34 @@
+{
+  "people": [
+    { "id": "p-dev1", "name": "Dev Reviewer One", "email": "dev-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+    { "id": "p-dev2", "name": "Dev Reviewer Two", "email": "dev-two@example.com", "active": true, "jira_account": null, "github_handle": null },
+    { "id": "p-qa1", "name": "QA Lead", "email": "qa-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+    { "id": "p-ops1", "name": "DevOps Approver", "email": "devops-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+    { "id": "p-sec1", "name": "Security Reviewer", "email": "sec-one@example.com", "active": true, "jira_account": null, "github_handle": null }
+  ],
+  "groups": [
+    {
+      "id": "g-dev", "name": "Developers", "type": "dev", "owns_gate": "RG-Dev",
+      "group_email": null, "members": ["p-dev1", "p-dev2"], "approval_mode": "active-review",
+      "escalation_order": [
+        { "person_id": "p-dev1", "timeout_hours": 24 },
+        { "person_id": "p-dev2", "timeout_hours": 48 }
+      ]
+    },
+    {
+      "id": "g-qa", "name": "QA", "type": "qa", "owns_gate": "RG-Test",
+      "group_email": null, "members": ["p-qa1"], "approval_mode": "active-review",
+      "escalation_order": []
+    },
+    {
+      "id": "g-ops", "name": "DevOps", "type": "devops", "owns_gate": "G4",
+      "group_email": null, "members": ["p-ops1"], "approval_mode": "standing-delegation",
+      "escalation_order": []
+    },
+    {
+      "id": "g-sec", "name": "Security", "type": "security", "owns_gate": "RG-Sec",
+      "group_email": null, "members": ["p-sec1"], "approval_mode": "active-review",
+      "escalation_order": []
+    }
+  ]
+}

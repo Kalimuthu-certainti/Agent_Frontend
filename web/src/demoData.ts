@@ -1710,6 +1710,28 @@ export const DEMO: Record<string, unknown> = {
     "log_path": "(static demo)",
     "jira_configured": false,
     "jira_project": null,
-    "reader": "StaticDemoReader"
+    "reader": "StaticDemoReader",
+    "team_store": "StaticDemoStore"
+  },
+  "/api/team": {
+    "people": [
+      { "id": "p-dev1", "name": "Dev Reviewer One", "email": "dev-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+      { "id": "p-dev2", "name": "Dev Reviewer Two", "email": "dev-two@example.com", "active": true, "jira_account": null, "github_handle": null },
+      { "id": "p-qa1", "name": "QA Lead", "email": "qa-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+      { "id": "p-ops1", "name": "DevOps Approver", "email": "devops-one@example.com", "active": true, "jira_account": null, "github_handle": null },
+      { "id": "p-sec1", "name": "Security Reviewer", "email": "sec-one@example.com", "active": true, "jira_account": null, "github_handle": null }
+    ],
+    "groups": [
+      { "id": "g-dev", "name": "Developers", "type": "dev", "owns_gate": "RG-Dev", "group_email": null, "members": ["p-dev1", "p-dev2"], "approval_mode": "active-review", "escalation_order": [{ "person_id": "p-dev1", "timeout_hours": 24 }, { "person_id": "p-dev2", "timeout_hours": 48 }], "active_members": 2 },
+      { "id": "g-qa", "name": "QA", "type": "qa", "owns_gate": "RG-Test", "group_email": null, "members": ["p-qa1"], "approval_mode": "active-review", "escalation_order": [], "active_members": 1 },
+      { "id": "g-ops", "name": "DevOps", "type": "devops", "owns_gate": "G4", "group_email": null, "members": ["p-ops1"], "approval_mode": "standing-delegation", "escalation_order": [], "active_members": 1 },
+      { "id": "g-sec", "name": "Security", "type": "security", "owns_gate": "RG-Sec", "group_email": null, "members": ["p-sec1"], "approval_mode": "active-review", "escalation_order": [], "active_members": 1 }
+    ],
+    "coverage": { "RG-TL": null, "RG-Dev": "g-dev", "RG-Test": "g-qa", "RG-Ver": null, "RG-Sec": "g-sec", "G4": "g-ops" },
+    "routable_gates": ["RG-TL", "RG-Dev", "RG-Test", "RG-Ver", "RG-Sec", "G4"],
+    "group_types": ["dev", "qa", "tl", "devops", "ba", "security"],
+    "approval_modes": ["active-review", "standing-delegation"],
+    "unassigned_gates": ["RG-TL", "RG-Ver"],
+    "starved_gates": []
   }
 };
