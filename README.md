@@ -1,88 +1,170 @@
-# Agent Control — Frontend (static demo)
+# Agent Control Panel
 
-The operations dashboard for the dev-agent programme, published to **GitHub Pages**
-as a **static demo**: the full UI, driven by **synthetic** data, with the backend
-disconnected. Approve / Bounce and the Jira editor are inert here by design.
-
-**Live demo:** enable Pages (below), then it publishes to
-`https://<your-user>.github.io/Agent_Frontend/`
-
-## Why it's a demo, not the tool
-
-GitHub Pages serves static files only. This app has a Node backend that reads the
-run log and *writes* approvals and Jira tickets — none of that can run on Pages.
-So the Pages build bakes in a synthetic snapshot and disables the writes, honestly
-labelled at the top of every screen.
-
-Nothing in this demo is real: the agents, tickets, PR links and session ids are
-all invented. No internal data is published.
-
-## Enable Pages (one time)
-
-1. Push this repo (already done if you're reading it on GitHub).
-2. **Settings → Pages → Build and deployment → Source: “GitHub Actions”.**
-3. The workflow in `.github/workflows/deploy-pages.yml` builds and deploys on
-   every push to `main`. First run may take a minute.
-
-If you rename the repo, update `VITE_BASE` in that workflow to `/<new-name>/`.
-With a custom domain, set it to `/`.
-
-## Run the real, working tool locally
+The operations surface for the dev-agent programme. One operator, two agents,
+four questions: *is anything stuck, is anything waiting on me, are we burning
+credit faster than expected, and what did the agents actually do?*
 
 ```bash
-npm test                     # backend tests
-npm --prefix web install
-npm run build                # normal (non-demo) build
-npm start                    # UI + live API on http://localhost:4180
+cd agent-control-panel
+npm test                     # 26 server tests, zero dependencies
+npm --prefix web install     # React 18 · Vite · Recharts
+npm run build                # typecheck + build the web app
+npm start                    # http://localhost:4180
 ```
 
-In the real build the screens read a live run log and the Approve / Bounce and
-requirement actions write for real. See the backend under `src/` and the record
-contract in the code comments.
+For frontend work, `npm --prefix web run dev` gives HMR on :5173 and proxies
+`/api` to :4180 — run `npm start` alongside it.
 
-## Configuration — mail, groups and users
+---
 
-The **Configuration** screen has three sections, in the order the chain runs:
+## The rule that shapes everything
 
-1. **Mail** — the SMTP server notifications leave through. Saved on the server
-   at `.agent/settings.json` (override with `AGENT_SETTINGS`), which is
-   git-ignored because it holds the password. The password is never sent to the
-   browser: the screen is told only whether one is stored, and leaving the field
-   untouched keeps it. **Send test** proves the route and prints the SMTP
-   transcript — saved settings and working delivery are different claims.
-2. **Configuration groups** — a team, the roles it claims, and the events worth
-   emailing it about. The only events offered are the ones this server actually
-   emits: `approval.recorded` and `requirement.created`. Open a group to see its
-   members and what each one's role lets them do.
-3. **Users** — the notification registry: name, email and role
-   (`owner` / `approver` / `viewer`). There is no group field: **membership is
-   derived from the role.** Everyone holding a role a group claims is a member
-   of it, so one person can belong to several groups at once, changing a role
-   moves them, and no membership list can drift from the registry. Each row
-   states plainly whether that person will really be emailed, and if not, why not.
+**A value the log does not contain is never rendered as a number.**
 
-Deleting a group removes a subscription, never a person — its members stay in
-the registry and simply stop being mailed about that group's events.
+Not `0`, not `—`, not a placeholder. It renders as *"not recorded yet"*, and a
+chart with nothing to plot is withheld with an explanation rather than drawn as
+a flat line at zero. A zero is a measurement; a null is an absence; confusing
+the two is how a dashboard starts lying.
 
-This is a registry, **not** a login — the panel still has no authentication.
+It is enforced in four places so it cannot erode by accident:
 
-A notification failure never fails the action that triggered it. An approval
-that was recorded stays recorded whether or not the mail server answered; the
-response carries a `notified` block saying `sent`, `skipped` or `failed`, and
-the reason is printed on the server log.
+| Layer | Mechanism |
+| --- | --- |
+| `src/runLog.js` | an unmeasured field is written `null`, never defaulted |
+| `src/reader.js` | `honestSum` returns `null` over zero recorded values, `0` only for a real zero — and reports a `*_recorded` count |
+| `src/*.js` API | every aggregate ships its `*_recorded` count to the client |
+| `web/src/ui.tsx` | `<Absent>` is the only path a missing value takes to the screen; `<Metric>` is the only path a number takes |
 
-```bash
-AGENT_SETTINGS=/var/lib/agent-control/settings.json   # where configuration lives
-AGENT_PUBLIC_URL=https://agent-control.example.com     # link back, in the mail body
+The first test in `test/reader.test.js` pins the "no data" vs "measured zero"
+distinction, because that is the one that would rot first.
+
+## Architecture
+
+```
+web/ (React 18 · Vite · Recharts)
+   │  fetch /api/*
+   ▼
+src/server.js  ──►  RunLogReader  ├─ FileRunLogReader   ← today
+                                  └─ PgRunLogReader     ← later
 ```
 
-The mailer speaks SMTP over Node's own `net`/`tls` — direct TLS, STARTTLS or a
-plaintext local relay, with `AUTH PLAIN` / `AUTH LOGIN`. It is deliberately not
-a dependency: this project has none.
+### Moving to Postgres
 
-## Build the static demo yourself
+`src/server.js` has one line marked `THE SEAM`:
 
-```bash
-cd web
-VITE_STATIC=1 VITE_BASE=/Agent_Frontend/ npm run build   # → web/dist
+```js
+const reader = new FileRunLogReader(LOG_PATH);
 ```
+
+Write a `PgRunLogReader` with the same four methods — `agents()`, `runs()`,
+`usage()`, `gates()` — returning the same shapes, and change that line. **No
+endpoint changes. No UI changes.** The web app has no idea a file was ever
+involved.
+
+A reasonable first schema: one `agent_run_log` table with the record fields
+below, indexed on `(ticket_key, ts)` and `(agent_name, ts)`. The aggregates in
+`reader.js` map onto `GROUP BY` almost line for line.
+
+### Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/agents` | command deck: latest state per agent, today's spend |
+| GET | `/api/runs?ticket_key=&limit=` | step timeline |
+| GET | `/api/usage?days=` | series, and splits by ticket / agent / model |
+| GET | `/api/gates?ticket_key=` | the seven-gate strip per ticket |
+| GET | `/api/approvals` | queue + decided records |
+| POST | `/api/approvals` | approve / bounce — idempotent by `request_id` |
+| POST | `/api/requirements` | create a Jira requirement |
+| GET | `/api/config` | what is wired and what is not |
+
+## The record
+
+One JSONL line per agent step, appended to `.agent/run-log.jsonl`
+(override with `AGENT_RUN_LOG`):
+
+```js
+const { appendStep } = require('./src/runLog');
+
+appendStep({
+  run_id: 'r-8823',              // required
+  agent_name: 'A',               // required
+  claude_session_id: 'sess_01ab',
+  model: 'claude-opus-5',
+  ticket_key: 'TRDV2-570',
+  phase: 'QA-1',
+  step: 'jest suite',
+  tokens_in: 18400, tokens_out: 2100,
+  cost_usd: 0.42,
+  context_pct: 63,               // drives the 75 / 90 rings
+  gate: 'RG-Test',               // DoR RG-TL RG-Dev RG-Test RG-Ver RG-Sec G4
+  verdict: 'pass',               // pass approved bounced blocked pending escalated
+  pr_url, ci_state, solution_commit,
+});
+```
+
+**Omit what you cannot measure.** It is stored as `null` and displayed honestly.
+Never pass `0` to fill a gap.
+
+`appendStep` throws on an unknown gate or verdict, an out-of-range
+`context_pct`, a non-numeric token count, or a missing `run_id` / `agent_name`.
+A corrupt log is worse than a missing one, because it looks like data.
+
+## The five surfaces
+
+**Command deck** — a tile per agent with the context ring as the primary visual.
+Nominal below 75%, amber at 75% (*finishing current piece*), red at 90%
+(*handing over*). The band is stated in words and the arc thickens with
+severity, so it reads without colour. Four numbers above; the brief said resist
+a fifth, and there isn't one.
+
+**Ticket** — the gate strip is the hero: seven gates, each carrying a left
+stripe whose weight encodes state. **`ready_to_merge` is only ever true when
+every gate is recorded *and* clearing** — never inferred from an absence.
+
+**Usage & credit** — spend over time with an emphasised endpoint, cost per
+ticket sorted, splits by agent and model. One measure per axis; never a dual
+axis.
+
+**Approvals** — the queue, each item carrying PR, CI, solution commit and merge
+state so a decision needs no other tab. Approve or bounce, bounce requires a
+reason, and both require a named actor. Decisions are **idempotent by
+`request_id`**: if the email path already decided, the UI shows that decision
+instead of allowing a conflicting second one.
+
+**Requirement editor** — writes into Jira. If Jira is not configured the form is
+disabled and says which variables are missing, rather than failing on click.
+
+## Configuration
+
+| Variable | Effect |
+| --- | --- |
+| `PORT` | default `4180` |
+| `AGENT_RUN_LOG` | run-log path |
+| `AGENT_APPROVALS` | approval-record path |
+| `JIRA_BASE_URL` `JIRA_EMAIL` `JIRA_API_TOKEN` `JIRA_PROJECT_KEY` | enables the requirement editor |
+
+## What the seeded log contains
+
+`.agent/run-log.jsonl` ships with **16 backfilled steps** from the first live
+agent session — step zero, and TRDV2-570 through its Verifier bounce. The events
+are real: the commits, Jira comments and PRs they name all exist.
+
+But they were **reconstructed after the fact, not measured**. So every row is
+`"source": "backfill"`, the UI badges it, and `tokens_in`, `tokens_out`,
+`cost_usd` and `context_pct` are `null` — which is why the panel currently shows
+"not recorded yet" for every cost and token figure, and withholds both charts.
+
+That is the tool telling the truth about what was measured. Those surfaces fill
+in the moment a live agent writes them.
+
+## Honest limits
+
+| | |
+| --- | --- |
+| **One writer per file** | `appendFileSync` is atomic enough for a single writer. Two agents on two machines is where Postgres stops being optional. |
+| **No rotation** | the log grows unbounded; every request parses the whole file. Comfortable at thousands of lines, not millions. |
+| **No auth** | binds to localhost. `POST /api/approvals` and `/api/requirements` are unauthenticated — put auth in front before exposing this anywhere. |
+| **Actor is self-declared** | the approvals actor is typed by the operator, not authenticated. It is an audit *label*, not proof of identity. |
+| **QA evidence** | the record carries no evidence-artefact fields yet, so the ticket view shows an empty state rather than a thumbnail gallery. |
+| **No budget** | "spend today" has nothing to compare against until a budget is configured. It says so rather than inventing a target. |
