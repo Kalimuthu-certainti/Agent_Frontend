@@ -61,3 +61,47 @@ absence.
   to recipient emails. The coverage strip flags any gate with no group in red.
 
 Commit the updated files and redeploy; the dashboard reflects them.
+
+## Sending gate mail (the agent does this itself)
+
+The agent sends approval mail **directly**, from wherever it is running. There is
+no workflow step, no `repository_dispatch`, and no GitHub token in the path — the
+Pages workflow only ever builds and deploys the dashboard.
+
+```bash
+node scripts/notify-gate.mjs RG-Dev "Review: TRDV2-600" "<p>Please review the solution doc.</p>"
+```
+
+The third argument may be a path to an HTML file instead of inline markup, which
+is what solution-doc mails use. Add `--dry-run` to resolve the gate, recipients
+and credentials and print the plan **without sending** — always worth doing once
+before a real send.
+
+Recipients come from `public/data/team.md`: a gate resolves to that group's
+`emails`, and an explicit `TO=` list is checked against the file's allowlist. The
+sender can only reach an address that appears in that file.
+
+### One-time credential setup
+
+The Graph app-only credentials are read at run time and are never committed and
+never logged. `send-mail.mjs` looks in three places, first hit wins:
+
+1. the environment — `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `MAIL_FROM`
+2. the macOS Keychain, service `agent-graph`, account = the variable name
+3. `~/.config/agent/graph.env` (`KEY=value` lines, `chmod 600`)
+
+The Keychain is the recommended one. Store each value once — run these yourself
+so the secret never passes through a terminal transcript or a chat log:
+
+```bash
+security add-generic-password -U -s agent-graph -a GRAPH_TENANT_ID     -w
+security add-generic-password -U -s agent-graph -a GRAPH_CLIENT_ID     -w
+security add-generic-password -U -s agent-graph -a GRAPH_CLIENT_SECRET -w
+security add-generic-password -U -s agent-graph -a MAIL_FROM           -w
+```
+
+Ending each with a bare `-w` makes `security` prompt for the value instead of
+taking it from the command line, so it stays out of your shell history.
+
+Because mail no longer goes through Actions, the `GRAPH_*` and `MAIL_FROM`
+entries in this repo's Actions Secrets are no longer used and can be deleted.
