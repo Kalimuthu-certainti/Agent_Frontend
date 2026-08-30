@@ -1,18 +1,51 @@
 {
-  "_comment": "Mail routing — the SOURCE OF TRUTH. The agent and send-mail.mjs read this file; the dashboard's Team surface edits it. team.md beside it is prose only. Nothing secret belongs here: the Graph client secret is never stored in the repo.",
+  "_comment": "Mail routing \u2014 the SOURCE OF TRUTH. The agent and send-mail.mjs read this file; the dashboard's Team surface edits it. team.md beside it is prose only. Nothing secret belongs here: the Graph client secret is never stored in the repo.",
   "from": "Kalimuthu.Kuppsamy@resdevtax.com",
   "graph": {
-    "tenantId": "",
-    "clientId": ""
+    "tenantId": "7c722eb0-2d94-428a-ac72-cea1da5c87c0",
+    "clientId": "ea0d9e79-8006-4ee2-a58f-61abda0dd77a"
   },
   "people": [
-    { "name": "Prithinga Senthilkumar", "email": "prithinga.senthilkumar@certainti.ai", "active": true },
-    { "name": "Mahitha Nalu", "email": "mahitha.nalu@certainti.ai", "active": true },
-    { "name": "Kalimuthu Kuppusamy", "email": "Kalimuthu.kuppusamy@certainti.ai", "active": true }
+    {
+      "name": "Prithinga Senthilkumar",
+      "email": "prithinga.senthilkumar@certainti.ai",
+      "active": true
+    },
+    {
+      "name": "Mahitha Nalu",
+      "email": "mahitha.nalu@certainti.ai",
+      "active": true
+    },
+    {
+      "name": "Kalimuthu Kuppusamy",
+      "email": "Kalimuthu.kuppusamy@certainti.ai",
+      "active": true
+    }
   ],
   "groups": [
-    { "name": "Developers", "gate": "RG-Dev", "emails": ["prithinga.senthilkumar@certainti.ai"], "mode": "active-review" },
-    { "name": "QA", "gate": "RG-Test", "emails": ["mahitha.nalu@certainti.ai"], "mode": "active-review" },
-    { "name": "DevOps", "gate": "G4", "emails": ["Kalimuthu.kuppusamy@certainti.ai"], "mode": "standing-delegation" }
+    {
+      "name": "Developers",
+      "gate": "RG-Dev",
+      "emails": [
+        "prithinga.senthilkumar@certainti.ai"
+      ],
+      "mode": "active-review"
+    },
+    {
+      "name": "QA",
+      "gate": "RG-Test",
+      "emails": [
+        "mahitha.nalu@certainti.ai"
+      ],
+      "mode": "active-review"
+    },
+    {
+      "name": "DevOps",
+      "gate": "G4",
+      "emails": [
+        "Kalimuthu.kuppusamy@certainti.ai"
+      ],
+      "mode": "active-review"
+    }
   ]
 }
