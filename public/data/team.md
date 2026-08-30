@@ -4,32 +4,45 @@ The agent maintains this file. **Edit the mail here** — the dashboard reads th
 `json` block below and shows who is mailed for each gate. Everything outside the
 block is just notes and renders as-is.
 
-To change who gets an approval mail for a gate, edit that group's `emails`, then
-commit and redeploy. No backend, no forms — the file is the source of truth.
+**Mail is sent _from_ Kalimuthu Kuppusamy** (`Kalimuthu.Kuppsamy@resdevtax.com`)
+to the recipients below.
+
+> **Security note:** this file is public (it ships to GitHub Pages), so it holds
+> **only email addresses** — the routing. The Microsoft Graph tenant id, client
+> id and **client secret** are **never** kept here; they live in the Mailer's
+> environment / a secret store. The secret has been exposed in chat and must be
+> **rotated in Entra** before any real send.
 
 ```json
 {
+  "from": "Kalimuthu.Kuppsamy@resdevtax.com",
   "people": [
-    { "name": "Dev Reviewer One", "email": "dev-one@example.com", "active": true },
-    { "name": "Dev Reviewer Two", "email": "dev-two@example.com", "active": true },
-    { "name": "QA Lead", "email": "qa-one@example.com", "active": true },
-    { "name": "DevOps Approver", "email": "devops-one@example.com", "active": true },
-    { "name": "Security Reviewer", "email": "sec-one@example.com", "active": true }
+    { "name": "Prithinga Senthilkumar", "email": "prithinga.senthilkumar@certainti.ai", "active": true },
+    { "name": "Mahitha Nalu", "email": "mahitha.nalu@certainti.ai", "active": true },
+    { "name": "Kalimuthu Kuppusamy", "email": "Kalimuthu.kuppusamy@certainti.ai", "active": true }
   ],
   "groups": [
-    { "name": "Developers", "gate": "RG-Dev", "emails": ["dev-one@example.com", "dev-two@example.com"], "mode": "active-review" },
-    { "name": "QA", "gate": "RG-Test", "emails": ["qa-one@example.com"], "mode": "active-review" },
-    { "name": "DevOps", "gate": "G4", "emails": ["devops-one@example.com"], "mode": "standing-delegation" },
-    { "name": "Security", "gate": "RG-Sec", "emails": ["sec-one@example.com"], "mode": "active-review" }
+    { "name": "Developers", "gate": "RG-Dev", "emails": ["prithinga.senthilkumar@certainti.ai"], "mode": "active-review" },
+    { "name": "QA", "gate": "RG-Test", "emails": ["mahitha.nalu@certainti.ai"], "mode": "active-review" },
+    { "name": "DevOps", "gate": "G4", "emails": ["Kalimuthu.kuppusamy@certainti.ai"], "mode": "active-review" }
   ]
 }
 ```
 
+## Roles
+
+| Gate | Role | Recipient |
+| --- | --- | --- |
+| `RG-Dev` | Developer review | prithinga.senthilkumar@certainti.ai |
+| `RG-Test` | QA | mahitha.nalu@certainti.ai |
+| `G4` | DevOps / merge | Kalimuthu.kuppusamy@certainti.ai |
+
 ## Notes
 
-- `RG-TL` and `RG-Ver` have **no group yet** — the coverage strip above flags
-  them red, because an approval request for them would reach no one.
-- Emails here are placeholders (`@example.com`). Replace them with the real
-  reviewer addresses.
+- `RG-TL`, `RG-Ver` and `RG-Sec` have **no group yet** — the coverage strip
+  flags them red, because an approval request for them would reach no one. Add a
+  group with recipients when you want them routed.
 - `mode` is informational in this read-only view: `active-review` means a person
-  must reply `APPROVED`; `standing-delegation` is a pre-agreed standing approval.
+  must reply `APPROVED`.
+- The Graph **tenant id / client id / client secret** are configured in the
+  Mailer's environment, not in this repo.
