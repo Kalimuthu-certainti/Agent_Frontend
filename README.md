@@ -5,7 +5,8 @@ It shows the agent's work by reading the files the agent commits into this repo:
 
 ```
 public/data/run-log.jsonl   the agent's work — one JSON step per line
-public/data/team.md         mail routing, edited in Markdown by the agent
+public/data/team.json       mail routing — the source of truth
+public/data/team.md         prose notes about the rota, rendered beside it
 ```
 
 The dashboard fetches those static files and renders them. That's it — it runs
@@ -39,8 +40,10 @@ Deploy is automatic via `.github/workflows/deploy-pages.yml`:
 - **Usage & credit** — spend and tokens over time, split by ticket / agent / model.
 - **Approvals** — gates the agent recorded as waiting on a human (read-only;
   decisions happen over email).
-- **Team & mail** — renders `data/team.md` and reads its `json` block to show who
-  is mailed for each gate.
+- **Team & mail** — the one editable surface. Shows who is mailed for each gate,
+  lets you change it, and hands back a `team.json` to commit. It cannot save on
+  its own: this is a static page with no server behind it, so the commit is what
+  makes a change real — and is the audit trail of who changed a recipient.
 
 ## The honesty rule
 
@@ -57,8 +60,10 @@ absence.
   source`. Omit what you can't measure (it shows as "not recorded yet") — never
   pass `0` to fill a gap. Gates: `DoR RG-TL RG-Dev RG-Test RG-Ver RG-Sec G4`;
   verdicts: `pass approved bounced blocked pending escalated`.
-- **Mail:** edit the `json` block in `public/data/team.md` — `groups` map a gate
-  to recipient emails. The coverage strip flags any gate with no group in red.
+- **Mail:** edit it on the Team & mail surface, download `team.json`, replace
+  `public/data/team.json` and commit. `groups` map a gate to recipient emails, and
+  the coverage strip flags any gate with no group in red. Editing the file by hand
+  works just as well — the UI is a convenience, not a gatekeeper.
 
 Commit the updated files and redeploy; the dashboard reflects them.
 
@@ -77,7 +82,7 @@ is what solution-doc mails use. Add `--dry-run` to resolve the gate, recipients
 and credentials and print the plan **without sending** — always worth doing once
 before a real send.
 
-Recipients come from `public/data/team.md`: a gate resolves to that group's
+Recipients come from `public/data/team.json`: a gate resolves to that group's
 `emails`, and an explicit `TO=` list is checked against the file's allowlist. The
 sender can only reach an address that appears in that file.
 
@@ -87,21 +92,24 @@ The Graph app-only credentials are read at run time and are never committed and
 never logged. `send-mail.mjs` looks in three places, first hit wins:
 
 1. the environment — `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `MAIL_FROM`
-2. the macOS Keychain, service `agent-graph`, account = the variable name
-3. `~/.config/agent/graph.env` (`KEY=value` lines, `chmod 600`)
+2. `team.json` — for the **tenant ID, client ID and `from`** only; these are
+   identifiers rather than secrets, so the dashboard has fields for them
+3. the macOS Keychain, service `agent-graph`, account = the variable name
+4. `~/.config/agent/graph.env` (`KEY=value` lines, `chmod 600`)
 
-The Keychain is the recommended one. Store each value once — run these yourself
-so the secret never passes through a terminal transcript or a chat log:
+The **client secret is never read from `team.json`** — only from the environment,
+the Keychain, or that file. There is deliberately no field for it in the UI.
+
+Put the tenant ID, client ID and sender in `team.json` via the dashboard, and the
+secret in the Keychain. That is a single command, run once, by you — so the secret
+never passes through a terminal transcript or a chat log:
 
 ```bash
-security add-generic-password -U -s agent-graph -a GRAPH_TENANT_ID     -w
-security add-generic-password -U -s agent-graph -a GRAPH_CLIENT_ID     -w
 security add-generic-password -U -s agent-graph -a GRAPH_CLIENT_SECRET -w
-security add-generic-password -U -s agent-graph -a MAIL_FROM           -w
 ```
 
-Ending each with a bare `-w` makes `security` prompt for the value instead of
-taking it from the command line, so it stays out of your shell history.
+The bare `-w` at the end makes `security` prompt for the value instead of taking
+it from the command line, so it stays out of your shell history.
 
 Because mail no longer goes through Actions, the `GRAPH_*` and `MAIL_FROM`
 entries in this repo's Actions Secrets are no longer used and can be deleted.

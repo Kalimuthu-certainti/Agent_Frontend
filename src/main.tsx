@@ -22,7 +22,7 @@ const SURFACES: { id: SurfaceId; label: string; title: string; lede: string }[] 
   { id: 'approvals', label: 'Approvals', title: 'Approvals',
     lede: 'Gates the agent has recorded as waiting on a human. Read-only — decisions are made over email.' },
   { id: 'team', label: 'Team & mail', title: 'Team & mail routing',
-    lede: 'Who is mailed for each gate. Edited by the agent in data/team.md; this just shows it.' },
+    lede: 'Who is mailed for each gate. Edit it here, then download data/team.json and commit it — the commit is what the agent reads.' },
 ];
 
 function useTheme() {
@@ -75,10 +75,11 @@ function App() {
           borderRadius: 'var(--radius)', padding: 'var(--s3) var(--s4)', marginBottom: 'var(--s4)',
           fontSize: 'var(--t-sm)', color: 'var(--ink-2)',
         }}>
-          <strong>Read-only.</strong> This dashboard shows the agent's work, taken entirely from the
+          <strong>No backend.</strong> This dashboard shows the agent's work, taken entirely from the
           files it commits — <span className="mono">data/run-log.jsonl</span> and
-          {' '}<span className="mono">data/team.md</span>. There is no backend and nothing to edit here;
-          the agent updates those files and the dashboard reflects them.
+          {' '}<span className="mono">data/team.json</span>. Every surface here is read-only except
+          {' '}<strong>Team &amp; mail</strong>, which edits the routing in your browser and hands back a
+          file to commit — nothing is saved to a server, because there is no server.
         </div>
 
         <header className="main-head">

@@ -8,10 +8,12 @@
 //   2. the macOS Keychain       (service "agent-graph", account = the var name)
 //   3. ~/.config/agent/graph.env  (KEY=value lines, chmod 600)
 //
-// Recipients always come from team.md — a gate name resolves to that group's
-// emails, and an explicit TO list is checked against the file's allowlist.
+// Recipients always come from team.json — a gate name resolves to that group's
+// emails, and an explicit TO list is checked against the file's allowlist. The
+// non-secret Graph identifiers (tenant, client, from) may live in that file too;
+// the secret never does.
 //
-// Env: GATE (or TO), SUBJECT, HTML, AGENT_TEAM_MD (default public/data/team.md)
+// Env: GATE (or TO), SUBJECT, HTML, AGENT_TEAM (default public/data/team.json)
 //      DRY_RUN=1 (or --dry-run) resolves and prints the plan without sending.
 
 import { readFileSync } from 'node:fs';
@@ -73,14 +75,28 @@ function cred(name) {
 
 // ---- routing --------------------------------------------------------------
 
+// team.json is the source of truth. A .md path is still accepted so an older
+// checkout, where the routing was a ```json block inside the Markdown, keeps
+// working rather than silently mailing nobody.
 function loadRouting(path) {
   let text;
-  try { text = readFileSync(path, 'utf8'); } catch { die(`team.md not found at ${path}`); }
-  const m = text.match(/```json\s*\n([\s\S]*?)\n```/);
-  if (!m) die('no ```json routing block found in team.md');
+  try { text = readFileSync(path, 'utf8'); } catch { die(`routing file not found at ${path}`); }
+
+  let raw = text;
+  if (path.endsWith('.md')) {
+    const m = text.match(/```json\s*\n([\s\S]*?)\n```/);
+    if (!m) die(`no \`\`\`json routing block in ${path} — routing now lives in team.json`);
+    raw = m[1];
+  }
+
   let cfg;
-  try { cfg = JSON.parse(m[1]); } catch (e) { die('routing block is not valid JSON: ' + e.message); }
-  return { from: cfg.from || null, people: cfg.people || [], groups: cfg.groups || [] };
+  try { cfg = JSON.parse(raw); } catch (e) { die(`${path} is not valid JSON: ` + e.message); }
+  return {
+    from: cfg.from || null,
+    graph: cfg.graph || {},
+    people: cfg.people || [],
+    groups: cfg.groups || [],
+  };
 }
 
 const recipientsForGate = (r, gate) => (r.groups.find(g => g.gate === gate)?.emails || []).filter(Boolean);
@@ -120,29 +136,38 @@ async function sendMail({ token, from, to, subject, html }) {
 // ---- main -----------------------------------------------------------------
 
 const env = process.env;
-const routing = loadRouting(env.AGENT_TEAM_MD || 'public/data/team.md');
+const ROUTING_PATH = env.AGENT_TEAM || env.AGENT_TEAM_MD || 'public/data/team.json';
+const routing = loadRouting(ROUTING_PATH);
 let to;
 if (env.GATE) {
   if (!ROUTABLE.includes(env.GATE)) die(`unknown gate "${env.GATE}"; expected one of ${ROUTABLE.join(', ')}`);
   to = recipientsForGate(routing, env.GATE);
-  if (!to.length) die(`no recipients for ${env.GATE} in team.md`);
+  if (!to.length) die(`no recipients for ${env.GATE} in ${ROUTING_PATH}`);
 } else if (env.TO) {
   const allow = allowlist(routing);
   to = env.TO.split(',').map(s => s.trim()).filter(Boolean);
   const bad = to.filter(x => !allow.has(x.toLowerCase()));
-  if (bad.length) die(`not in team.md allowlist: ${bad.join(', ')}`);
+  if (bad.length) die(`not in the ${ROUTING_PATH} allowlist: ${bad.join(', ')}`);
 } else {
   die('set GATE (RG-Dev, RG-Test, G4, …) or TO (comma-separated, allowlisted)');
 }
 
 const from = cred('MAIL_FROM') || routing.from;
-if (!from) die('no sender: set MAIL_FROM or a "from" in team.md');
+if (!from) die(`no sender: set MAIL_FROM, or a "from" in ${ROUTING_PATH}`);
 
 const subject = env.SUBJECT || '(dev-agent notification)';
 const html = env.HTML || '<p>(no body)</p>';
 
-const tenant = cred('GRAPH_TENANT_ID');
-const client = cred('GRAPH_CLIENT_ID');
+// Identifiers may also come from the routing file, between the environment and
+// the Keychain. The secret is never read from the file.
+function ident(name, fromFile) {
+  const e = process.env[name];
+  if (e) { sources[name] = 'environment'; return e; }
+  if (fromFile) { sources[name] = ROUTING_PATH; return fromFile; }
+  return cred(name);
+}
+const tenant = ident('GRAPH_TENANT_ID', routing.graph?.tenantId);
+const client = ident('GRAPH_CLIENT_ID', routing.graph?.clientId);
 const secret = cred('GRAPH_CLIENT_SECRET');
 
 console.log(`gate:       ${env.GATE || '(explicit TO)'}`);

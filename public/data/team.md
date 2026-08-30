@@ -1,35 +1,42 @@
 # Team & mail routing
 
-The agent maintains this file. **Edit the mail here** — the dashboard reads the
-`json` block below and shows who is mailed for each gate. Everything outside the
-block is just notes and renders as-is.
+**The routing lives in [`team.json`](./team.json), not here.** That file is what
+the agent reads and what `scripts/send-mail.mjs` sends to. This page is prose —
+context a person needs that a machine does not.
 
-To change who gets an approval mail for a gate, edit that group's `emails`, then
-commit and redeploy. No backend, no forms — the file is the source of truth.
+Edit the routing on the **Team & mail** surface of the dashboard: change the
+recipients there, download the `team.json` it produces, and commit it. The commit
+is the audit trail of who changed a mail recipient and when.
 
-```json
-{
-  "people": [
-    { "name": "Dev Reviewer One", "email": "dev-one@example.com", "active": true },
-    { "name": "Dev Reviewer Two", "email": "dev-two@example.com", "active": true },
-    { "name": "QA Lead", "email": "qa-one@example.com", "active": true },
-    { "name": "DevOps Approver", "email": "devops-one@example.com", "active": true },
-    { "name": "Security Reviewer", "email": "sec-one@example.com", "active": true }
-  ],
-  "groups": [
-    { "name": "Developers", "gate": "RG-Dev", "emails": ["dev-one@example.com", "dev-two@example.com"], "mode": "active-review" },
-    { "name": "QA", "gate": "RG-Test", "emails": ["qa-one@example.com"], "mode": "active-review" },
-    { "name": "DevOps", "gate": "G4", "emails": ["devops-one@example.com"], "mode": "standing-delegation" },
-    { "name": "Security", "gate": "RG-Sec", "emails": ["sec-one@example.com"], "mode": "active-review" }
-  ]
-}
-```
+## Who is on the rota
 
-## Notes
+| Gate | What it approves | Who |
+| --- | --- | --- |
+| `RG-Dev` | The solution document, before any code is written | Prithinga Senthilkumar |
+| `RG-Test` | QA evidence, before the PR is raised | Mahitha Nalu |
+| `G4` | Permission to merge | Kalimuthu Kuppusamy |
+| `RG-TL` | Technical-lead sign-off | **unassigned** |
+| `RG-Ver` | Adversarial verification | **unassigned** |
+| `RG-Sec` | Security review | **unassigned** |
 
-- `RG-TL` and `RG-Ver` have **no group yet** — the coverage strip above flags
-  them red, because an approval request for them would reach no one.
-- Emails here are placeholders (`@example.com`). Replace them with the real
-  reviewer addresses.
-- `mode` is informational in this read-only view: `active-review` means a person
-  must reply `APPROVED`; `standing-delegation` is a pre-agreed standing approval.
+`RG-TL`, `RG-Ver` and `RG-Sec` have no group, so the coverage strip above flags
+them red — an approval request for one of those would reach nobody. The agent
+must escalate to a human rather than assume the gate passed.
+
+## Review modes
+
+- **`active-review`** — a named person has to reply `APPROVED`. Silence is not
+  approval, and the agent waits.
+- **`standing-delegation`** — approval was agreed in advance for a class of
+  change, so the agent proceeds and records the delegation on the run log.
+
+## What is not in these files
+
+The Microsoft Graph **client secret** is never committed, never written here, and
+never logged. It is read at run time from the local environment, the macOS
+Keychain, or `~/.config/agent/graph.env`. The tenant and client IDs are
+identifiers rather than secrets, so they sit in `team.json` where the UI can set
+them — but the secret only ever exists on the machine doing the sending.
+
+Mail is also **allowlisted to this routing**: `send-mail.mjs` refuses to send to
+any address that does not appear in `team.json`.

@@ -85,22 +85,25 @@ export interface ApprovalItem {
 export interface ApprovalsPayload { items: ApprovalItem[]; decided: ApprovalRecord[]; gate_order: string[] }
 export interface Config { log_path: string; jira_configured: boolean; jira_project: string | null; reader: string; team_store?: string }
 
-/* ---- team & mail routing ---- */
-export interface Person {
-  id: string; name: string; email: string; active: boolean;
-  jira_account: string | null; github_handle: string | null;
-}
-export type ApprovalMode = 'active-review' | 'standing-delegation';
-export interface EscalationRung { person_id: string; timeout_hours: number }
+/* ---------- mail routing (public/data/team.json) ----------
+ * The source of truth for who is mailed at each gate. Edited on the Team
+ * surface, downloaded, and committed — there is no backend to save it to.
+ * Nothing secret lives here: the Graph client secret is never in the repo. */
+
+export interface Person { name: string; email: string; active?: boolean }
+
 export interface Group {
-  id: string; name: string; type: string; owns_gate: string | null;
-  group_email: string | null; members: string[];
-  approval_mode: ApprovalMode; escalation_order: EscalationRung[];
-  active_members?: number;
+  name: string;
+  gate?: string;
+  emails?: string[];
+  mode?: 'active-review' | 'standing-delegation';
 }
-export interface TeamState {
-  people: Person[]; groups: Group[];
-  coverage: Record<string, string | null>;
-  routable_gates: string[]; group_types: string[]; approval_modes: ApprovalMode[];
-  unassigned_gates: string[]; starved_gates: string[];
+
+export interface TeamConfig {
+  /** Sending mailbox. */
+  from?: string;
+  /** Entra identifiers — not secrets, so they can live in the repo. */
+  graph?: { tenantId?: string; clientId?: string };
+  people?: Person[];
+  groups?: Group[];
 }
