@@ -4,4 +4,4 @@ dist/
 
 # local agent credentials — never committed
 graph.env
-.env
+config.bat
