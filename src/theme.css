@@ -174,6 +174,19 @@ label { display: block; font-size: var(--t-sm); color: var(--ink-2); margin-bott
 .field { margin-bottom: var(--s4); }
 .hint { color: var(--ink-3); font-size: var(--t-xs); margin-top: var(--s1); }
 
+/* ---------- editor forms (Team & mail) ----------
+ * A row of fields that wraps instead of scrolling: the routing editor is used
+ * on laptops and on a phone, and a recipient list must never be cut off. */
+.formrow { display: flex; gap: var(--s3); flex-wrap: wrap; align-items: flex-start; }
+.formrow > .field { flex: 1 1 220px; margin-bottom: 0; }
+.formrow > .btn { flex: 0 0 auto; align-self: flex-end; }
+.field > span { display: block; font-size: var(--t-xs); color: var(--ink-2); margin-bottom: var(--s1); }
+.field textarea { font-family: var(--mono); font-size: var(--t-xs); line-height: 1.7; resize: vertical; }
+.field input[type="checkbox"] { width: auto; min-height: 0; accent-color: var(--accent); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-pre { background: var(--surface-sunk); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: var(--s3); overflow-x: auto; font-family: var(--mono); font-size: var(--t-xs); line-height: 1.6; }
+
 /* ---------- status strip ---------- */
 
 .strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
