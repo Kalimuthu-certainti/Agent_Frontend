@@ -47,6 +47,14 @@ const verdict = arg('verdict');
 if (verdict && !VERDICTS.includes(verdict)) die(`--verdict must be one of ${VERDICTS.join(', ')}`);
 if (verdict && !gate) die('--verdict only means something with --gate');
 
+// solution_commit is the commit an approval was PINNED TO — the dashboard labels
+// it "Approved solution". Writing it when the doc is merely committed would show
+// an approval that never happened, so it is only accepted alongside one.
+if (arg('solution-commit') && verdict !== 'approved') {
+  die('--solution-commit records what was APPROVED; pass it with --gate <G> --verdict approved, ' +
+      'or put the commit in --note if you only mean "this is what I committed"');
+}
+
 const logPath = arg('log') || 'public/data/run-log.jsonl';
 
 const entry = {
